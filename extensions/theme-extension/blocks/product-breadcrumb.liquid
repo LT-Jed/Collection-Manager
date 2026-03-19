@@ -1,0 +1,199 @@
+{% comment %}
+  Product Page Breadcrumb Block
+  Reads the product's breadcrumb metafields to display the hierarchy path.
+  When "Both" brand mode is active, two paths exist:
+    - custom.breadcrumb_collections (branded)
+    - custom.breadcrumb_unbranded (unbranded)
+  JavaScript reads the _bc_tree cookie to pick which to show.
+  When unbranded is shown, the brand is still displayed as a link to the
+  branded top-level collection (first entry in breadcrumb_collections).
+{% endcomment %}
+
+{% assign separator = block.settings.separator | default: ' > ' %}
+{% assign default_tree = block.settings.default_tree | default: 'branded' %}
+{% assign branded_collections = product.metafields.custom.breadcrumb_collections.value %}
+{% assign unbranded_collections = product.metafields.custom.breadcrumb_unbranded.value %}
+{% assign has_dual = false %}
+{% if branded_collections != blank and unbranded_collections != blank %}
+  {% if branded_collections.size > 0 and unbranded_collections.size > 0 %}
+    {% assign has_dual = true %}
+  {% endif %}
+{% endif %}
+
+{% comment %} --- DUAL MODE: render both, JS picks one --- {% endcomment %}
+{% if has_dual %}
+  {% comment %} Branded breadcrumb {% endcomment %}
+  <nav class="product-breadcrumb product-breadcrumb--branded" aria-label="Breadcrumb" style="display:none" data-tree="branded">
+    <ol class="product-breadcrumb__list">
+      <li class="product-breadcrumb__item">
+        <a href="{{ routes.collections_url }}" class="product-breadcrumb__link">All Products</a>
+      </li>
+      {% for coll in branded_collections %}
+        {% if coll.title != blank %}
+          <li class="product-breadcrumb__item">
+            <span class="product-breadcrumb__separator" aria-hidden="true">{{ separator }}</span>
+            {% assign coll_title_parts = coll.title | split: ' > ' %}
+            {% assign coll_short_title = coll_title_parts | last %}
+            <a href="{{ coll.url }}" class="product-breadcrumb__link">{{ coll_short_title }}</a>
+          </li>
+        {% endif %}
+      {% endfor %}
+      <li class="product-breadcrumb__item">
+        <span class="product-breadcrumb__separator" aria-hidden="true">{{ separator }}</span>
+        <span class="product-breadcrumb__current" aria-current="page">{{ product.title }}</span>
+      </li>
+    </ol>
+  </nav>
+
+  {% comment %} Unbranded breadcrumb — includes a brand reference link {% endcomment %}
+  <nav class="product-breadcrumb product-breadcrumb--unbranded" aria-label="Breadcrumb" style="display:none" data-tree="unbranded">
+    <ol class="product-breadcrumb__list">
+      <li class="product-breadcrumb__item">
+        <a href="{{ routes.collections_url }}" class="product-breadcrumb__link">All Products</a>
+      </li>
+      {% for coll in unbranded_collections %}
+        {% if coll.title != blank %}
+          <li class="product-breadcrumb__item">
+            <span class="product-breadcrumb__separator" aria-hidden="true">{{ separator }}</span>
+            {% assign coll_title_parts = coll.title | split: ' > ' %}
+            {% assign coll_short_title = coll_title_parts | last %}
+            <a href="{{ coll.url }}" class="product-breadcrumb__link">{{ coll_short_title }}</a>
+          </li>
+        {% endif %}
+      {% endfor %}
+      {% comment %} Add brand reference from the branded breadcrumb (first entry = brand collection) {% endcomment %}
+      {% assign brand_coll = branded_collections | first %}
+      {% if brand_coll != blank and brand_coll.title != blank %}
+        <li class="product-breadcrumb__item product-breadcrumb__brand-ref">
+          <span class="product-breadcrumb__separator" aria-hidden="true">|</span>
+          {% assign brand_title_parts = brand_coll.title | split: ' > ' %}
+          {% assign brand_short_title = brand_title_parts | last %}
+          <a href="{{ brand_coll.url }}" class="product-breadcrumb__link product-breadcrumb__brand-link">{{ brand_short_title }}</a>
+        </li>
+      {% endif %}
+      <li class="product-breadcrumb__item">
+        <span class="product-breadcrumb__separator" aria-hidden="true">{{ separator }}</span>
+        <span class="product-breadcrumb__current" aria-current="page">{{ product.title }}</span>
+      </li>
+    </ol>
+  </nav>
+
+  <script>
+    (function() {
+      var defaultTree = {{ default_tree | json }};
+      var cookies = document.cookie.split(';');
+      var tree = defaultTree;
+      for (var i = 0; i < cookies.length; i++) {
+        var c = cookies[i].trim();
+        if (c.indexOf('_bc_tree=') === 0) {
+          tree = c.substring(9);
+          break;
+        }
+      }
+      var els = document.querySelectorAll('.product-breadcrumb[data-tree]');
+      for (var j = 0; j < els.length; j++) {
+        if (els[j].getAttribute('data-tree') === tree) {
+          els[j].style.display = '';
+        }
+      }
+      // Fallback: if neither matched, show default
+      var anyVisible = false;
+      for (var k = 0; k < els.length; k++) {
+        if (els[k].style.display !== 'none') anyVisible = true;
+      }
+      if (!anyVisible) {
+        for (var m = 0; m < els.length; m++) {
+          if (els[m].getAttribute('data-tree') === defaultTree) {
+            els[m].style.display = '';
+          }
+        }
+      }
+    })();
+  </script>
+
+{% comment %} --- SINGLE MODE: one breadcrumb path --- {% endcomment %}
+{% elsif branded_collections != blank and branded_collections.size > 0 %}
+  <nav class="product-breadcrumb" aria-label="Breadcrumb">
+    <ol class="product-breadcrumb__list">
+      <li class="product-breadcrumb__item">
+        <a href="{{ routes.collections_url }}" class="product-breadcrumb__link">All Products</a>
+      </li>
+      {% for coll in branded_collections %}
+        {% if coll.title != blank %}
+          <li class="product-breadcrumb__item">
+            <span class="product-breadcrumb__separator" aria-hidden="true">{{ separator }}</span>
+            {% assign coll_title_parts = coll.title | split: ' > ' %}
+            {% assign coll_short_title = coll_title_parts | last %}
+            <a href="{{ coll.url }}" class="product-breadcrumb__link">{{ coll_short_title }}</a>
+          </li>
+        {% endif %}
+      {% endfor %}
+      <li class="product-breadcrumb__item">
+        <span class="product-breadcrumb__separator" aria-hidden="true">{{ separator }}</span>
+        <span class="product-breadcrumb__current" aria-current="page">{{ product.title }}</span>
+      </li>
+    </ol>
+  </nav>
+{% endif %}
+
+<style>
+  .product-breadcrumb__list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .product-breadcrumb__item {
+    display: flex;
+    align-items: center;
+  }
+  .product-breadcrumb__link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .product-breadcrumb__link:hover {
+    opacity: 0.7;
+  }
+  .product-breadcrumb__separator {
+    margin: 0 0.35em;
+    opacity: 0.5;
+  }
+  .product-breadcrumb__current {
+    font-weight: 600;
+  }
+  .product-breadcrumb__brand-link {
+    font-style: italic;
+    opacity: 0.8;
+  }
+</style>
+
+{% schema %}
+{
+  "name": "Product Breadcrumb",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "separator",
+      "label": "Separator",
+      "default": " > "
+    },
+    {
+      "type": "select",
+      "id": "default_tree",
+      "label": "Default breadcrumb tree",
+      "options": [
+        { "value": "branded", "label": "Branded" },
+        { "value": "unbranded", "label": "Unbranded" }
+      ],
+      "default": "branded",
+      "info": "Which breadcrumb path to show when the visitor's origin can't be determined."
+    }
+  ]
+}
+{% endschema %}

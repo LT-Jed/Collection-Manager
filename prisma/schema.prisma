@@ -1,0 +1,103 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+datasource db {
+  provider = "sqlite"
+  url      = "file:dev.sqlite"
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+model Shop {
+  id                    String    @id @default(cuid())
+  shopDomain            String    @unique
+  brandMode             String    @default("brand_only")
+  defaultBreadcrumbTree String    @default("branded")
+  minProductThreshold   Int       @default(1)
+  artistEnabled         Boolean   @default(false)
+  lineEnabled           Boolean   @default(false)
+  collectionEnabled     Boolean   @default(false)
+  lastSyncAt            DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  hierarchyNodes HierarchyNode[]
+  syncJobs       CollectionSyncJob[]
+  redirectLogs   RedirectLog[]
+}
+
+model HierarchyNode {
+  id               String   @id @default(cuid())
+  shopId           String
+  level            Int
+  levelName        String
+  value            String
+  parentId         String   @default("")
+  treeType         String   @default("single")
+  collectionGid    String?
+  collectionHandle String?
+  productCount     Int      @default(0)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  shop     Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, level, value, parentId, treeType])
+  @@index([shopId, level])
+  @@index([parentId])
+  @@index([treeType])
+}
+
+model CollectionSyncJob {
+  id          String   @id @default(cuid())
+  shopId      String
+  triggeredBy String
+  status      String   @default("pending")
+  details     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, status])
+}
+
+model RedirectLog {
+  id          String   @id @default(cuid())
+  shopId      String
+  fromPath    String
+  toPath      String
+  reason      String
+  redirectGid String?
+  createdAt   DateTime @default(now())
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+}

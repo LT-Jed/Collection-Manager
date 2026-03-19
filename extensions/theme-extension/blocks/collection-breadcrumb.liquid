@@ -1,0 +1,147 @@
+{% comment %}
+  Collection Page Breadcrumb Block
+  Reads the collection's custom.parent_collection metafield to walk up the hierarchy.
+  Renders a breadcrumb trail from root to current collection.
+  Sets a cookie (_bc_tree) based on the collection's custom.hierarchy_tree metafield
+  so product pages know which breadcrumb path to show.
+{% endcomment %}
+
+{% assign separator = block.settings.separator | default: ' > ' %}
+{% assign max_depth = block.settings.max_depth | default: 7 %}
+
+{% assign crumbs_reversed = '' | split: '' %}
+{% assign current = collection %}
+
+{% comment %} Walk up the parent chain to build breadcrumbs (reversed) {% endcomment %}
+{% assign depth = 0 %}
+{% for i in (1..7) %}
+  {% if depth >= max_depth %}
+    {% break %}
+  {% endif %}
+
+  {% assign parent_ref = current.metafields.custom.parent_collection.value %}
+  {% if parent_ref == blank %}
+    {% break %}
+  {% endif %}
+
+  {% assign full_title = parent_ref.title %}
+  {% assign title_parts = full_title | split: ' > ' %}
+  {% assign crumb_title = title_parts | last %}
+  {% assign crumb_url = parent_ref.url %}
+
+  {% if crumb_title != blank %}
+    {% assign crumb_obj = crumb_title | append: '|||' | append: crumb_url %}
+    {% assign crumb_arr = crumb_obj | split: '###NEVER###' %}
+    {% assign crumbs_reversed = crumbs_reversed | concat: crumb_arr %}
+  {% endif %}
+
+  {% assign current = parent_ref %}
+  {% assign depth = depth | plus: 1 %}
+{% endfor %}
+
+{% comment %} Reverse to get root-first order {% endcomment %}
+{% assign crumbs = '' | split: '' %}
+{% for i in (0..crumbs_reversed.size) %}
+  {% assign rev_index = crumbs_reversed.size | minus: 1 | minus: i %}
+  {% if rev_index >= 0 %}
+    {% assign rev_item = crumbs_reversed[rev_index] | split: '###NEVER###' %}
+    {% assign crumbs = crumbs | concat: rev_item %}
+  {% endif %}
+{% endfor %}
+
+{% comment %} Add current collection as the last crumb {% endcomment %}
+{% assign current_title_parts = collection.title | split: ' > ' %}
+{% assign current_short_title = current_title_parts | last %}
+{% assign current_crumb = current_short_title | append: '|||' | append: collection.url %}
+{% assign current_arr = current_crumb | split: '###NEVER###' %}
+{% assign crumbs = crumbs | concat: current_arr %}
+
+{% if crumbs.size > 0 %}
+  <nav class="collection-breadcrumb" aria-label="Breadcrumb">
+    <ol class="collection-breadcrumb__list">
+      <li class="collection-breadcrumb__item">
+        <a href="{{ routes.collections_url }}" class="collection-breadcrumb__link">All Products</a>
+      </li>
+      {% for crumb in crumbs %}
+        {% assign parts = crumb | split: '|||' %}
+        {% assign crumb_title = parts[0] %}
+        {% assign crumb_url = parts[1] %}
+        <li class="collection-breadcrumb__item">
+          <span class="collection-breadcrumb__separator" aria-hidden="true">{{ separator }}</span>
+          {% if forloop.last %}
+            <span class="collection-breadcrumb__current" aria-current="page">{{ crumb_title }}</span>
+          {% else %}
+            <a href="{{ crumb_url }}" class="collection-breadcrumb__link">{{ crumb_title }}</a>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+  </nav>
+
+  <style>
+    .collection-breadcrumb__list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+    .collection-breadcrumb__item {
+      display: flex;
+      align-items: center;
+    }
+    .collection-breadcrumb__link {
+      color: inherit;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .collection-breadcrumb__link:hover {
+      opacity: 0.7;
+    }
+    .collection-breadcrumb__separator {
+      margin: 0 0.35em;
+      opacity: 0.5;
+    }
+    .collection-breadcrumb__current {
+      font-weight: 600;
+    }
+  </style>
+{% endif %}
+
+{% comment %} Set cookie to track which tree the user is browsing {% endcomment %}
+{% assign tree_type = collection.metafields.custom.hierarchy_tree.value %}
+{% if tree_type != blank %}
+  <script>
+    (function() {
+      var treeType = {{ tree_type | json }};
+      document.cookie = '_bc_tree=' + treeType + ';path=/;max-age=1800;SameSite=Lax';
+    })();
+  </script>
+{% endif %}
+
+{% schema %}
+{
+  "name": "Collection Breadcrumb",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "separator",
+      "label": "Separator",
+      "default": " > "
+    },
+    {
+      "type": "range",
+      "id": "max_depth",
+      "label": "Maximum depth",
+      "min": 1,
+      "max": 7,
+      "step": 1,
+      "default": 7
+    }
+  ]
+}
+{% endschema %}

@@ -1,0 +1,58 @@
+{% comment %}
+  Shared breadcrumb rendering snippet.
+  Usage: {% render 'breadcrumb-trail', crumbs: crumbs, separator: separator %}
+  crumbs: array of objects with .title and .url properties
+  separator: string separator between items (default: " > ")
+{% endcomment %}
+
+{% assign sep = separator | default: ' > ' %}
+
+<nav class="collection-breadcrumb" aria-label="Breadcrumb">
+  <ol class="collection-breadcrumb__list">
+    <li class="collection-breadcrumb__item">
+      <a href="{{ routes.collections_url }}" class="collection-breadcrumb__link">All Products</a>
+    </li>
+    {% for crumb in crumbs %}
+      <li class="collection-breadcrumb__item">
+        <span class="collection-breadcrumb__separator" aria-hidden="true">{{ sep }}</span>
+        {% if forloop.last %}
+          <span class="collection-breadcrumb__current" aria-current="page">{{ crumb.title }}</span>
+        {% else %}
+          <a href="{{ crumb.url }}" class="collection-breadcrumb__link">{{ crumb.title }}</a>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+</nav>
+
+<style>
+  .collection-breadcrumb__list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .collection-breadcrumb__item {
+    display: flex;
+    align-items: center;
+  }
+  .collection-breadcrumb__link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .collection-breadcrumb__link:hover {
+    opacity: 0.7;
+  }
+  .collection-breadcrumb__separator {
+    margin: 0 0.35em;
+    opacity: 0.5;
+  }
+  .collection-breadcrumb__current {
+    font-weight: 600;
+  }
+</style>

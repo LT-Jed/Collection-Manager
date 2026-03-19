@@ -1,0 +1,174 @@
+{% comment %}
+  Collection Children Block
+  Displays a responsive grid of links to the current collection's direct child collections.
+  Reads the custom.collection_children metafield (list.collection_reference).
+  Renders nothing when there are no children, making it invisible on leaf collections.
+{% endcomment %}
+
+{% assign children = collection.metafields.custom.collection_children.value %}
+
+{% if children != blank and children.size > 0 %}
+  {% comment %} Determine heading text — use the first child's hierarchy level, not the current collection's {% endcomment %}
+  {% if block.settings.heading != blank %}
+    {% assign section_heading = block.settings.heading %}
+  {% else %}
+    {% assign first_child = children | first %}
+    {% assign child_level = first_child.metafields.custom.hierarchy_level.value %}
+    {% if child_level != blank %}
+      {% assign section_heading = 'Browse by ' | append: child_level %}
+    {% else %}
+      {% assign section_heading = 'Browse Collections' %}
+    {% endif %}
+  {% endif %}
+
+  {% assign cols_max = block.settings.columns_max | default: 4 %}
+  {% assign show_count = block.settings.show_product_count %}
+
+  <div class="collection-children">
+    {% if block.settings.show_heading %}
+      <h2 class="collection-children__heading">{{ section_heading }}</h2>
+    {% endif %}
+
+    <ul class="collection-children__grid" style="--cols-max: {{ cols_max }};">
+      {% for child in children %}
+        {% if child.title != blank %}
+          {% assign child_title_parts = child.title | split: ' > ' %}
+          {% assign display_title = child_title_parts | last %}
+          <li class="collection-children__item">
+            <a href="{{ child.url }}" class="collection-children__link">
+              <span class="collection-children__title">{{ display_title }}</span>
+              {% if show_count %}
+                <span class="collection-children__count">
+                  {{ child.products_count }} {{ child.products_count | pluralize: 'product', 'products' }}
+                </span>
+              {% endif %}
+            </a>
+          </li>
+        {% endif %}
+      {% endfor %}
+    </ul>
+  </div>
+
+  <style>
+    /* Force Shopify app block wrapper to stretch full width */
+    :host {
+      display: block !important;
+      width: 100% !important;
+    }
+    .shopify-block {
+      display: block !important;
+      width: 100% !important;
+    }
+    .collection-children {
+      margin: 1.5rem 0;
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+    .collection-children__heading {
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin: 0 0 1rem;
+      color: inherit;
+    }
+    .collection-children__grid {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 0.75rem;
+      width: 100%;
+    }
+    .collection-children__item {
+      display: flex;
+    }
+    .collection-children__link {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid rgba(0, 0, 0, 0.12);
+      border-radius: 6px;
+      color: inherit;
+      text-decoration: none;
+      transition: background-color 0.15s, border-color 0.15s;
+      box-sizing: border-box;
+    }
+    .collection-children__link:hover {
+      background-color: rgba(0, 0, 0, 0.04);
+      border-color: rgba(0, 0, 0, 0.25);
+    }
+    .collection-children__title {
+      font-size: 0.9rem;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+    .collection-children__count {
+      font-size: 0.75rem;
+      opacity: 0.55;
+      margin-top: 0.25rem;
+    }
+    @media (max-width: 480px) {
+      .collection-children__grid {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      }
+    }
+  </style>
+
+  <script>
+    (function() {
+      var el = document.querySelector('.collection-children');
+      if (!el) return;
+      var parent = el.parentElement;
+      while (parent && parent !== document.body) {
+        var style = window.getComputedStyle(parent);
+        var display = style.display;
+        if (display === 'inline' || display === 'inline-block') {
+          parent.style.display = 'block';
+          parent.style.width = '100%';
+        }
+        // Stop once we reach a block-level container that's reasonably wide
+        if (parent.offsetWidth > 400) break;
+        parent = parent.parentElement;
+      }
+    })();
+  </script>
+{% endif %}
+
+{% schema %}
+{
+  "name": "Collection Children",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Custom heading",
+      "info": "Leave blank to auto-generate from the hierarchy level name."
+    },
+    {
+      "type": "checkbox",
+      "id": "show_heading",
+      "label": "Show heading",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "show_product_count",
+      "label": "Show product count",
+      "default": true
+    },
+    {
+      "type": "range",
+      "id": "columns_max",
+      "label": "Maximum columns",
+      "min": 2,
+      "max": 6,
+      "step": 1,
+      "default": 4,
+      "info": "Grid will auto-fill up to this many columns."
+    }
+  ]
+}
+{% endschema %}

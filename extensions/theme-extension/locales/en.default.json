@@ -1,0 +1,55 @@
+{
+  "collection_breadcrumb": {
+    "name": "Collection Breadcrumb",
+    "settings": {
+      "separator": {
+        "label": "Separator character"
+      },
+      "max_depth": {
+        "label": "Maximum breadcrumb depth"
+      }
+    }
+  },
+  "product_breadcrumb": {
+    "name": "Product Breadcrumb",
+    "settings": {
+      "separator": {
+        "label": "Separator character"
+      }
+    }
+  },
+  "collection_children": {
+    "name": "Collection Children",
+    "settings": {
+      "heading": {
+        "label": "Custom heading"
+      },
+      "show_heading": {
+        "label": "Show heading"
+      },
+      "show_product_count": {
+        "label": "Show product count"
+      },
+      "columns_max": {
+        "label": "Maximum columns"
+      }
+    }
+  },
+  "collection_shop": {
+    "name": "Collection Shop",
+    "settings": {
+      "heading": {
+        "label": "Section heading"
+      },
+      "collection_type": {
+        "label": "Collection group type"
+      },
+      "collections": {
+        "label": "Collections to display"
+      },
+      "columns": {
+        "label": "Number of columns"
+      }
+    }
+  }
+}

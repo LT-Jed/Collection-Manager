@@ -1,0 +1,225 @@
+{% comment %}
+  Collection Shop Block
+  Automatically displays all child collections from the current collection's
+  custom.collection_children metafield, grouped alphabetically with jump navigation.
+{% endcomment %}
+
+{% assign children = collection.metafields.custom.collection_children.value %}
+
+{% if children != blank and children.size > 0 %}
+  {% comment %} Build sorted list of children with display titles {% endcomment %}
+  {% assign letters_used = '' %}
+  {% for child in children %}
+    {% if child.title != blank %}
+      {% assign child_title_parts = child.title | split: ' > ' %}
+      {% assign display_title = child_title_parts | last %}
+      {% assign first_letter = display_title | slice: 0 | upcase %}
+      {% unless letters_used contains first_letter %}
+        {% if letters_used != '' %}
+          {% assign letters_used = letters_used | append: ',' %}
+        {% endif %}
+        {% assign letters_used = letters_used | append: first_letter %}
+      {% endunless %}
+    {% endif %}
+  {% endfor %}
+  {% assign letter_array = letters_used | split: ',' | sort %}
+
+  <div class="collection-shop" data-collection-shop>
+    <div class="collection-shop__search">
+      <input
+        type="text"
+        class="collection-shop__search-input"
+        placeholder="Search..."
+        data-collection-search
+        aria-label="Search collections"
+      />
+    </div>
+
+    <nav class="collection-shop__alphabet" data-alphabet-nav aria-label="Jump to letter">
+      {% for letter in letter_array %}
+        <a href="#collection-letter-{{ letter }}" class="collection-shop__letter-link" data-letter-link="{{ letter }}">{{ letter }}</a>
+      {% endfor %}
+    </nav>
+
+    <div class="collection-shop__sections" data-sections>
+      {% for letter in letter_array %}
+        <div class="collection-shop__section" data-letter-section="{{ letter }}" id="collection-letter-{{ letter }}">
+          <h3 class="collection-shop__section-heading">{{ letter }}</h3>
+          <ul class="collection-shop__list">
+            {% for child in children %}
+              {% if child.title != blank %}
+                {% assign child_title_parts = child.title | split: ' > ' %}
+                {% assign display_title = child_title_parts | last %}
+                {% assign first_letter = display_title | slice: 0 | upcase %}
+                {% if first_letter == letter %}
+                  <li class="collection-shop__item" data-collection-title="{{ display_title | downcase }}">
+                    <a href="{{ child.url }}" class="collection-shop__link">
+                      {{ display_title }} <span class="collection-shop__count">({{ child.products_count }})</span>
+                    </a>
+                  </li>
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+          </ul>
+        </div>
+      {% endfor %}
+    </div>
+
+    <p class="collection-shop__no-results" data-no-results style="display: none;">
+      No collections found matching your search.
+    </p>
+  </div>
+
+  <style>
+    .collection-shop__search {
+      margin-bottom: 1rem;
+    }
+    .collection-shop__search-input {
+      width: 100%;
+      padding: 0.5rem 1rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 0.875rem;
+      box-sizing: border-box;
+    }
+    .collection-shop__search-input:focus {
+      outline: 2px solid currentColor;
+      outline-offset: 2px;
+    }
+    .collection-shop__alphabet {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+      margin-bottom: 1.5rem;
+      position: sticky;
+      top: 0;
+      background: var(--color-background, #fff);
+      padding: 0.5rem 0;
+      z-index: 1;
+    }
+    .collection-shop__letter-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2rem;
+      height: 2rem;
+      border-radius: 4px;
+      text-decoration: none;
+      color: inherit;
+      font-weight: 600;
+      font-size: 0.875rem;
+      transition: background-color 0.15s;
+    }
+    .collection-shop__letter-link:hover {
+      background-color: rgba(0, 0, 0, 0.08);
+    }
+    .collection-shop__letter-link--hidden {
+      opacity: 0.25;
+      pointer-events: none;
+    }
+    .collection-shop__section {
+      margin-bottom: 1.5rem;
+    }
+    .collection-shop__section-heading {
+      margin: 0 0 0.5rem;
+      padding-bottom: 0.25rem;
+      border-bottom: 1px solid #eee;
+      font-size: 1.1rem;
+      font-weight: 700;
+    }
+    .collection-shop__list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      columns: 2;
+      column-gap: 1.5rem;
+    }
+    @media (min-width: 768px) {
+      .collection-shop__list {
+        columns: 3;
+      }
+    }
+    .collection-shop__item {
+      break-inside: avoid;
+      padding: 0;
+    }
+    .collection-shop__link {
+      display: block;
+      padding: 0.35rem 0.5rem;
+      color: inherit;
+      text-decoration: none;
+      border-radius: 4px;
+      transition: background-color 0.15s;
+      font-size: 0.9rem;
+    }
+    .collection-shop__link:hover {
+      background-color: rgba(0, 0, 0, 0.05);
+    }
+    .collection-shop__count {
+      opacity: 0.5;
+      font-size: 0.8rem;
+    }
+    .collection-shop__no-results {
+      text-align: center;
+      padding: 2rem;
+      opacity: 0.6;
+    }
+  </style>
+
+  <script>
+    (function() {
+      const container = document.querySelector('[data-collection-shop]');
+      if (!container) return;
+
+      const searchInput = container.querySelector('[data-collection-search]');
+      const items = container.querySelectorAll('[data-collection-title]');
+      const sections = container.querySelectorAll('[data-letter-section]');
+      const letterLinks = container.querySelectorAll('[data-letter-link]');
+      const noResults = container.querySelector('[data-no-results]');
+
+      if (!searchInput) return;
+
+      searchInput.addEventListener('input', function() {
+        const query = this.value.toLowerCase().trim();
+        let visibleCount = 0;
+        const visibleLetters = new Set();
+
+        items.forEach(function(item) {
+          const title = item.getAttribute('data-collection-title') || '';
+          const matches = !query || title.includes(query);
+          item.style.display = matches ? '' : 'none';
+          if (matches) {
+            visibleCount++;
+            visibleLetters.add(title.charAt(0).toUpperCase());
+          }
+        });
+
+        sections.forEach(function(section) {
+          const letter = section.getAttribute('data-letter-section');
+          section.style.display = visibleLetters.has(letter) ? '' : 'none';
+        });
+
+        letterLinks.forEach(function(link) {
+          const letter = link.getAttribute('data-letter-link');
+          if (query && !visibleLetters.has(letter)) {
+            link.classList.add('collection-shop__letter-link--hidden');
+          } else {
+            link.classList.remove('collection-shop__letter-link--hidden');
+          }
+        });
+
+        if (noResults) {
+          noResults.style.display = visibleCount === 0 ? '' : 'none';
+        }
+      });
+    })();
+  </script>
+{% endif %}
+
+{% schema %}
+{
+  "name": "Collection Shop",
+  "target": "section",
+  "settings": []
+}
+{% endschema %}
