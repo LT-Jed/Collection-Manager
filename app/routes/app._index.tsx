@@ -6,7 +6,7 @@ import type {
 } from "react-router";
 import { useLoaderData, useFetcher } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
-import { authenticate } from "../shopify.server";
+import { authenticate, unauthenticated } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import db from "../db.server";
 import { runFullSync } from "../services/collectionSync.server";
@@ -141,7 +141,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
+  // Use offline token for long-running syncs to avoid token expiration
+  const { admin } = await unauthenticated.admin(session.shop);
 
   try {
     const result = await runFullSync(admin, session.shop);
