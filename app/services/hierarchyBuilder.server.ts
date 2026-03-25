@@ -1,4 +1,5 @@
 import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
+import { graphqlWithRetry } from "./graphqlWithRetry.server";
 import db from "../db.server";
 import {
   ensureMetafieldDefinitions,
@@ -132,7 +133,7 @@ async function fetchAllProducts(
   let hasNextPage = true;
 
   while (hasNextPage) {
-    const response: Response = await admin.graphql(
+    const response: Response = await graphqlWithRetry(admin,
       `#graphql
       query GetProducts($cursor: String) {
         products(first: 50, after: $cursor) {
@@ -258,7 +259,7 @@ export async function getPublicationIds(
   let hasNextPage = true;
 
   while (hasNextPage) {
-    const response: Response = await admin.graphql(
+    const response: Response = await graphqlWithRetry(admin,
       `#graphql
       query Publications($after: String) {
         publications(first: 50, after: $after) {
@@ -292,7 +293,7 @@ export async function publishCollectionToAllChannels(
 ) {
   if (publicationIds.length === 0) return;
 
-  const response: Response = await admin.graphql(
+  const response: Response = await graphqlWithRetry(admin,
     `#graphql
     mutation PublishCollection($id: ID!, $input: [PublicationInput!]!) {
       publishablePublish(id: $id, input: $input) {
@@ -319,7 +320,7 @@ async function createShopifyCollection(
   handle: string,
   publicationIds: string[],
 ): Promise<{ gid: string; handle: string } | null> {
-  const response: Response = await admin.graphql(
+  const response: Response = await graphqlWithRetry(admin,
     `#graphql
     mutation CreateCollection($input: CollectionInput!) {
       collectionCreate(input: $input) {
@@ -363,7 +364,7 @@ async function findCollectionByHandle(
   admin: AdminApiContext,
   handle: string,
 ): Promise<{ gid: string; handle: string } | null> {
-  const response: Response = await admin.graphql(
+  const response: Response = await graphqlWithRetry(admin,
     `#graphql
     query FindCollection($handle: String!) {
       collectionByHandle(handle: $handle) {
@@ -390,7 +391,7 @@ async function getExistingProductIds(
   let hasNextPage = true;
 
   while (hasNextPage) {
-    const response: Response = await admin.graphql(
+    const response: Response = await graphqlWithRetry(admin,
       `#graphql
       query CollectionProducts($id: ID!, $after: String) {
         collection(id: $id) {
@@ -432,7 +433,7 @@ async function addProductsToCollection(
   const batchSize = 250;
   for (let i = 0; i < newProducts.length; i += batchSize) {
     const batch = newProducts.slice(i, i + batchSize);
-    const response: Response = await admin.graphql(
+    const response: Response = await graphqlWithRetry(admin,
       `#graphql
       mutation AddProducts($id: ID!, $productIds: [ID!]!) {
         collectionAddProducts(id: $id, productIds: $productIds) {

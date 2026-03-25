@@ -1,4 +1,5 @@
 import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
+import { graphqlWithRetry } from "./graphqlWithRetry.server";
 import db from "../db.server";
 import {
   buildFullHierarchy,
@@ -52,7 +53,7 @@ async function fetchProduct(
   admin: AdminApiContext,
   productGid: string,
 ) {
-  const response: Response = await admin.graphql(
+  const response: Response = await graphqlWithRetry(admin,
     `#graphql
     query GetProduct($id: ID!) {
       product(id: $id) {
@@ -90,7 +91,7 @@ async function createCollectionForNode(
   title: string,
   handle: string,
 ): Promise<{ gid: string; handle: string } | null> {
-  const response: Response = await admin.graphql(
+  const response: Response = await graphqlWithRetry(admin,
     `#graphql
     mutation CreateCollection($input: CollectionInput!) {
       collectionCreate(input: $input) {
@@ -106,7 +107,7 @@ async function createCollectionForNode(
     if (
       errors.some((e: { message: string }) => e.message.includes("already"))
     ) {
-      const findResp: Response = await admin.graphql(
+      const findResp: Response = await graphqlWithRetry(admin,
         `#graphql
         query FindCollection($handle: String!) {
           collectionByHandle(handle: $handle) { id handle }
@@ -134,7 +135,7 @@ async function addProductToCollection(
   collectionGid: string,
   productGid: string,
 ) {
-  await admin.graphql(
+  await graphqlWithRetry(admin,
     `#graphql
     mutation AddProduct($id: ID!, $productIds: [ID!]!) {
       collectionAddProducts(id: $id, productIds: $productIds) {
@@ -151,7 +152,7 @@ async function removeProductFromCollection(
   collectionGid: string,
   productGid: string,
 ) {
-  await admin.graphql(
+  await graphqlWithRetry(admin,
     `#graphql
     mutation RemoveProduct($id: ID!, $productIds: [ID!]!) {
       collectionRemoveProducts(id: $id, productIds: $productIds) {
@@ -171,7 +172,7 @@ async function getProductCollections(
   let hasNext = true;
 
   while (hasNext) {
-    const response: Response = await admin.graphql(
+    const response: Response = await graphqlWithRetry(admin,
       `#graphql
       query ProductCollections($id: ID!, $after: String) {
         product(id: $id) {

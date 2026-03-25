@@ -1,4 +1,5 @@
 import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
+import { graphqlWithRetry } from "./graphqlWithRetry.server";
 import db from "../db.server";
 
 export async function createRedirect(
@@ -8,7 +9,7 @@ export async function createRedirect(
   toPath: string,
   reason: string,
 ) {
-  const response: Response = await admin.graphql(
+  const response: Response = await graphqlWithRetry(admin,
     `#graphql
     mutation CreateRedirect($urlRedirect: UrlRedirectInput!) {
       urlRedirectCreate(urlRedirect: $urlRedirect) {
@@ -50,7 +51,7 @@ export async function deleteCollection(
   admin: AdminApiContext,
   collectionGid: string,
 ) {
-  const response: Response = await admin.graphql(
+  const response: Response = await graphqlWithRetry(admin,
     `#graphql
     mutation DeleteCollection($input: CollectionDeleteInput!) {
       collectionDelete(input: $input) {

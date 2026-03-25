@@ -1,4 +1,5 @@
 import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
+import { graphqlWithRetry } from "./graphqlWithRetry.server";
 
 const METAFIELD_DEFINITIONS = [
   {
@@ -49,7 +50,7 @@ export async function ensureMetafieldDefinitions(
   admin: AdminApiContext,
 ) {
   for (const def of METAFIELD_DEFINITIONS) {
-    const response: Response = await admin.graphql(
+    const response: Response = await graphqlWithRetry(admin,
       `#graphql
       mutation CreateMetafieldDefinition($definition: MetafieldDefinitionInput!) {
         metafieldDefinitionCreate(definition: $definition) {
@@ -100,7 +101,7 @@ async function setMetafields(
   }>,
   label: string,
 ) {
-  const response: Response = await admin.graphql(
+  const response: Response = await graphqlWithRetry(admin,
     `#graphql
     mutation SetMetafields($metafields: [MetafieldsSetInput!]!) {
       metafieldsSet(metafields: $metafields) {

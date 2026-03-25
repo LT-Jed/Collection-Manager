@@ -1,4 +1,5 @@
 import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
+import { graphqlWithRetry } from "./graphqlWithRetry.server";
 import db from "../db.server";
 import { getPublicationIds, publishCollectionToAllChannels } from "./hierarchyBuilder.server";
 import { setParentCollection, setCollectionChildren } from "./metafieldManager.server";
@@ -25,7 +26,7 @@ async function resolveMetaobjectDisplayNames(
   // Batch resolve in groups of 50
   for (let i = 0; i < gids.length; i += 50) {
     const batch = gids.slice(i, i + 50);
-    const response: Response = await admin.graphql(
+    const response: Response = await graphqlWithRetry(admin,
       `#graphql
       query ResolveMetaobjects($ids: [ID!]!) {
         nodes(ids: $ids) {
@@ -64,7 +65,7 @@ async function fetchAllProductsWithMetafields(
   let hasNextPage = true;
 
   while (hasNextPage) {
-    const response: Response = await admin.graphql(
+    const response: Response = await graphqlWithRetry(admin,
       `#graphql
       query GetProducts($cursor: String) {
         products(first: 50, after: $cursor) {
@@ -128,7 +129,7 @@ async function createCollectionIfNeeded(
   const input: Record<string, string> = { title, handle };
   if (templateSuffix) input.templateSuffix = templateSuffix;
 
-  const response: Response = await admin.graphql(
+  const response: Response = await graphqlWithRetry(admin,
     `#graphql
     mutation CreateCollection($input: CollectionInput!) {
       collectionCreate(input: $input) {
@@ -143,7 +144,7 @@ async function createCollectionIfNeeded(
 
   if (errors?.length) {
     if (errors.some((e: { message: string }) => e.message.includes("already"))) {
-      const findResp: Response = await admin.graphql(
+      const findResp: Response = await graphqlWithRetry(admin,
         `#graphql
         query FindCollection($handle: String!) {
           collectionByHandle(handle: $handle) { id handle }
@@ -175,7 +176,7 @@ async function addProductsToCollection(
   const batchSize = 250;
   for (let i = 0; i < productGids.length; i += batchSize) {
     const batch = productGids.slice(i, i + batchSize);
-    await admin.graphql(
+    await graphqlWithRetry(admin,
       `#graphql
       mutation AddProducts($id: ID!, $productIds: [ID!]!) {
         collectionAddProducts(id: $id, productIds: $productIds) {
