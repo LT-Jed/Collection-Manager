@@ -35,8 +35,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  // Use offline token for long-running syncs to avoid token expiration
-  const { admin } = await unauthenticated.admin(session.shop);
   const formData = await request.formData();
 
   const brandMode = (formData.get("brandMode") as string) || "brand_only";
@@ -77,12 +75,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     },
   });
 
-  // Trigger re-syncs if needed
-  if (hierarchyChanged) {
-    await runFullSync(admin, session.shop);
-  }
-  if (separateChanged) {
-    await syncSeparateCollections(admin, session.shop);
+  // Use offline token for long-running syncs
+  const getAdmin = async () => {
+    const { admin } = await unauthenticated.admin(session.shop);
+    return admin;
+  };
+
+  // Trigger re-syncs if needed, with retry on token expiry
+  if (hierarchyChanged || separateChanged) {
+    let admin = await getAdmin();
+    try {
+      if (hierarchyChanged) await runFullSync(admin, session.shop);
+      if (separateChanged) await syncSeparateCollections(admin, session.shop);
+    } catch (error: any) {
+      if (error?.response?.code === 401 || error?.message?.includes("Unauthorized")) {
+        console.log("Token expired during settings sync, re-acquiring and retrying...");
+        admin = await getAdmin();
+        if (hierarchyChanged) await runFullSync(admin, session.shop);
+        if (separateChanged) await syncSeparateCollections(admin, session.shop);
+      } else {
+        throw error;
+      }
+    }
   }
 
   return { success: true };

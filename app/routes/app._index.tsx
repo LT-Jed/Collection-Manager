@@ -142,13 +142,30 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  // Use offline token for long-running syncs to avoid token expiration
-  const { admin } = await unauthenticated.admin(session.shop);
+
+  // Helper that gets a fresh admin client — retries once on 401
+  const getAdmin = async () => {
+    const { admin } = await unauthenticated.admin(session.shop);
+    return admin;
+  };
 
   try {
-    const result = await runFullSync(admin, session.shop);
-    await syncSeparateCollections(admin, session.shop);
-    return { success: true, ...result };
+    let admin = await getAdmin();
+    try {
+      const result = await runFullSync(admin, session.shop);
+      await syncSeparateCollections(admin, session.shop);
+      return { success: true, ...result };
+    } catch (error: any) {
+      // If 401, re-acquire admin and retry once
+      if (error?.response?.code === 401 || error?.message?.includes("Unauthorized")) {
+        console.log("Token expired during sync, re-acquiring and retrying...");
+        admin = await getAdmin();
+        const result = await runFullSync(admin, session.shop);
+        await syncSeparateCollections(admin, session.shop);
+        return { success: true, ...result };
+      }
+      throw error;
+    }
   } catch (error) {
     return {
       success: false,
