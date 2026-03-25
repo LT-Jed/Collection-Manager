@@ -4,7 +4,7 @@ import { getPublicationIds, publishCollectionToAllChannels } from "./hierarchyBu
 import { setParentCollection, setCollectionChildren } from "./metafieldManager.server";
 
 const SEPARATE_COLLECTION_TYPES = [
-  { key: "artist", metafieldKey: "artist", label: "Artist", pluralLabel: "Artists" },
+  { key: "artist", metafieldKey: "artist_name", label: "Artist", pluralLabel: "Artists" },
   { key: "line", metafieldKey: "line", label: "Line", pluralLabel: "Lines" },
   { key: "collection", metafieldKey: "collection", label: "Collection", pluralLabel: "Collections" },
 ] as const;
