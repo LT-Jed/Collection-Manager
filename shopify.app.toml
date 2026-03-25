@@ -2,7 +2,7 @@
 
 client_id = "c3782d803a068e3d73bb019cebfef5c5"
 name = "Collection Manager"
-application_url = "https://example.com"
+application_url = "https://collection-manager-5b15.onrender.com"
 embedded = true
 
 [build]
@@ -20,4 +20,4 @@ uri = "/webhooks"
 scopes = "write_products,read_products,write_content,read_content,read_publications,write_publications,read_metaobjects"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://collection-manager-5b15.onrender.com/api/auth" ]
