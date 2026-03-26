@@ -8,7 +8,9 @@ function sleep(ms: number) {
 }
 
 /**
- * Wraps admin.graphql with automatic retry on throttle (429) errors.
+ * Wraps admin.graphql with automatic retry on transient errors.
+ * Retries on: throttle (429), bad gateway (502), service unavailable (503),
+ * gateway timeout (504), and internal server errors (500).
  * Uses exponential backoff: 1s, 2s, 4s, 8s, 16s.
  */
 export async function graphqlWithRetry(
@@ -23,14 +25,25 @@ export async function graphqlWithRetry(
         : await admin.graphql(query);
       return response;
     } catch (error: any) {
-      const isThrottled =
+      const statusCode = error?.response?.code;
+      const isRetryable =
         error?.message?.includes("Throttled") ||
-        error?.response?.code === 429;
+        error?.message?.includes("Bad Gateway") ||
+        error?.message?.includes("Internal Server Error") ||
+        error?.message?.includes("Service Unavailable") ||
+        error?.message?.includes("Gateway Timeout") ||
+        error?.message?.includes("ECONNRESET") ||
+        error?.message?.includes("ETIMEDOUT") ||
+        statusCode === 429 ||
+        statusCode === 500 ||
+        statusCode === 502 ||
+        statusCode === 503 ||
+        statusCode === 504;
 
-      if (isThrottled && attempt < MAX_RETRIES) {
+      if (isRetryable && attempt < MAX_RETRIES) {
         const delay = BASE_DELAY_MS * Math.pow(2, attempt);
         console.log(
-          `GraphQL throttled, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`,
+          `GraphQL error (${statusCode || error?.message?.slice(0, 50)}), retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`,
         );
         await sleep(delay);
         continue;
@@ -40,6 +53,5 @@ export async function graphqlWithRetry(
     }
   }
 
-  // Should never reach here, but TypeScript needs it
   throw new Error("Max retries exceeded");
 }
