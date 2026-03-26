@@ -1,53 +1,66 @@
 {% comment %}
   Collection Children Block
   Displays a responsive grid of links to the current collection's direct child collections.
-  Reads the custom.collection_children metafield (list.collection_reference).
+  Reads the custom.children_data metafield (JSON array of collection handles).
   Renders nothing when there are no children, making it invisible on leaf collections.
 {% endcomment %}
 
-{% assign children = collection.metafields.custom.collection_children.value %}
+{% assign children_json = collection.metafields.custom.children_data.value %}
 
-{% if children != blank and children.size > 0 %}
-  {% comment %} Determine heading text — use the first child's hierarchy level, not the current collection's {% endcomment %}
-  {% if block.settings.heading != blank %}
-    {% assign section_heading = block.settings.heading %}
-  {% else %}
-    {% assign first_child = children | first %}
-    {% assign child_level = first_child.metafields.custom.hierarchy_level.value %}
-    {% if child_level != blank %}
-      {% assign section_heading = 'Browse by ' | append: child_level %}
+{% if children_json != blank %}
+  {% comment %} Resolve handles to collection objects {% endcomment %}
+  {% assign child_handles = children_json %}
+  {% assign resolved_children = '' | split: '' %}
+  {% for handle in child_handles %}
+    {% assign child = collections[handle] %}
+    {% if child != blank %}
+      {% assign resolved_children = resolved_children | concat: child | split: '###NEVER###' %}
+    {% endif %}
+  {% endfor %}
+
+  {% if resolved_children.size > 0 %}
+    {% comment %} Determine heading text — use the first child's hierarchy level {% endcomment %}
+    {% if block.settings.heading != blank %}
+      {% assign section_heading = block.settings.heading %}
     {% else %}
-      {% assign section_heading = 'Browse Collections' %}
+      {% assign first_child = resolved_children | first %}
+      {% assign child_level = first_child.metafields.custom.hierarchy_level.value %}
+      {% if child_level != blank %}
+        {% assign section_heading = 'Browse by ' | append: child_level %}
+      {% else %}
+        {% assign section_heading = 'Browse Collections' %}
+      {% endif %}
     {% endif %}
+
+    {% assign cols_max = block.settings.columns_max | default: 4 %}
+    {% assign show_count = block.settings.show_product_count %}
+
+    <div class="collection-children">
+      {% if block.settings.show_heading %}
+        <h2 class="collection-children__heading">{{ section_heading }}</h2>
+      {% endif %}
+
+      <ul class="collection-children__grid" style="--cols-max: {{ cols_max }};">
+        {% for handle in child_handles %}
+          {% assign child = collections[handle] %}
+          {% if child != blank and child.title != blank %}
+            {% assign child_title_parts = child.title | split: ' > ' %}
+            {% assign display_title = child_title_parts | last %}
+            <li class="collection-children__item">
+              <a href="{{ child.url }}" class="collection-children__link">
+                <span class="collection-children__title">{{ display_title }}</span>
+                {% if show_count %}
+                  <span class="collection-children__count">
+                    {{ child.products_count }} {{ child.products_count | pluralize: 'product', 'products' }}
+                  </span>
+                {% endif %}
+              </a>
+            </li>
+          {% endif %}
+        {% endfor %}
+      </ul>
+    </div>
   {% endif %}
-
-  {% assign cols_max = block.settings.columns_max | default: 4 %}
-  {% assign show_count = block.settings.show_product_count %}
-
-  <div class="collection-children">
-    {% if block.settings.show_heading %}
-      <h2 class="collection-children__heading">{{ section_heading }}</h2>
-    {% endif %}
-
-    <ul class="collection-children__grid" style="--cols-max: {{ cols_max }};">
-      {% for child in children %}
-        {% if child.title != blank %}
-          {% assign child_title_parts = child.title | split: ' > ' %}
-          {% assign display_title = child_title_parts | last %}
-          <li class="collection-children__item">
-            <a href="{{ child.url }}" class="collection-children__link">
-              <span class="collection-children__title">{{ display_title }}</span>
-              {% if show_count %}
-                <span class="collection-children__count">
-                  {{ child.products_count }} {{ child.products_count | pluralize: 'product', 'products' }}
-                </span>
-              {% endif %}
-            </a>
-          </li>
-        {% endif %}
-      {% endfor %}
-    </ul>
-  </div>
 
   <style>
     /* Force Shopify app block wrapper to stretch full width */
@@ -134,6 +147,7 @@
       }
     })();
   </script>
+  {% endif %}
 {% endif %}
 
 {% schema %}

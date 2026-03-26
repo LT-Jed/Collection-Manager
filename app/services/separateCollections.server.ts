@@ -255,15 +255,23 @@ export async function syncSeparateCollections(
       }
     }
 
+    // Add all products with this metafield to the parent collection
+    const allProductIds = Array.from(groups.values()).flat();
+    if (parentResult && allProductIds.length > 0) {
+      console.log(`Adding ${allProductIds.length} products to parent "${parentTitle}" collection`);
+      await addProductsToCollection(admin, parentResult.gid, allProductIds);
+    }
+
     // Create a collection for each unique value
-    const childGids: string[] = [];
+    const childHandles: string[] = [];
+    console.log(`Creating ${groups.size} child collections for "${collType.key}"`);
     for (const [value, productIds] of groups) {
       const handle = `${collType.key}-${value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
       const title = `${parentTitle} > ${value}`;
 
       const result = await createCollectionIfNeeded(admin, title, handle);
       if (result) {
-        childGids.push(result.gid);
+        childHandles.push(result.handle);
         await addProductsToCollection(admin, result.gid, productIds);
 
         // Set parent_collection metafield on the child
@@ -303,9 +311,9 @@ export async function syncSeparateCollections(
       }
     }
 
-    // Set collection_children metafield on the parent
-    if (parentResult && childGids.length > 0) {
-      await setCollectionChildren(admin, parentResult.gid, childGids);
+    // Set children_data metafield on the parent (JSON array of handles, no limit)
+    if (parentResult && childHandles.length > 0) {
+      await setCollectionChildren(admin, parentResult.gid, childHandles);
     }
 
     // Update parent product count

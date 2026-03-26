@@ -1,16 +1,19 @@
 {% comment %}
   Collection Shop Block
   Automatically displays all child collections from the current collection's
-  custom.collection_children metafield, grouped alphabetically with jump navigation.
+  custom.children_data metafield (JSON array of handles), grouped alphabetically with jump navigation.
 {% endcomment %}
 
-{% assign children = collection.metafields.custom.collection_children.value %}
+{% assign children_json = collection.metafields.custom.children_data.value %}
 
-{% if children != blank and children.size > 0 %}
-  {% comment %} Build sorted list of children with display titles {% endcomment %}
+{% if children_json != blank %}
+  {% assign child_handles = children_json %}
+
+  {% comment %} Build sorted list of letters from resolved collections {% endcomment %}
   {% assign letters_used = '' %}
-  {% for child in children %}
-    {% if child.title != blank %}
+  {% for handle in child_handles %}
+    {% assign child = collections[handle] %}
+    {% if child != blank and child.title != blank %}
       {% assign child_title_parts = child.title | split: ' > ' %}
       {% assign display_title = child_title_parts | last %}
       {% assign first_letter = display_title | slice: 0 | upcase %}
@@ -24,6 +27,7 @@
   {% endfor %}
   {% assign letter_array = letters_used | split: ',' | sort %}
 
+  {% if letter_array.size > 0 %}
   <div class="collection-shop" data-collection-shop>
     <div class="collection-shop__search">
       <input
@@ -46,8 +50,9 @@
         <div class="collection-shop__section" data-letter-section="{{ letter }}" id="collection-letter-{{ letter }}">
           <h3 class="collection-shop__section-heading">{{ letter }}</h3>
           <ul class="collection-shop__list">
-            {% for child in children %}
-              {% if child.title != blank %}
+            {% for handle in child_handles %}
+              {% assign child = collections[handle] %}
+              {% if child != blank and child.title != blank %}
                 {% assign child_title_parts = child.title | split: ' > ' %}
                 {% assign display_title = child_title_parts | last %}
                 {% assign first_letter = display_title | slice: 0 | upcase %}
@@ -69,6 +74,7 @@
       No collections found matching your search.
     </p>
   </div>
+  {% endif %}
 
   <style>
     .collection-shop__search {

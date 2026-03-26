@@ -5,9 +5,9 @@ const METAFIELD_DEFINITIONS = [
   {
     ownerType: "COLLECTION",
     namespace: "custom",
-    key: "collection_children",
-    type: "list.collection_reference",
-    name: "Collection Children",
+    key: "children_data",
+    type: "json",
+    name: "Children Data",
   },
   {
     ownerType: "COLLECTION",
@@ -121,7 +121,7 @@ async function setMetafields(
 export async function setCollectionChildren(
   admin: AdminApiContext,
   collectionGid: string,
-  childCollectionGids: string[],
+  childHandles: string[],
 ) {
   await setMetafields(
     admin,
@@ -129,12 +129,12 @@ export async function setCollectionChildren(
       {
         ownerId: collectionGid,
         namespace: "custom",
-        key: "collection_children",
-        type: "list.collection_reference",
-        value: JSON.stringify(childCollectionGids),
+        key: "children_data",
+        type: "json",
+        value: JSON.stringify(childHandles),
       },
     ],
-    "collection_children",
+    "children_data",
   );
 }
 
@@ -242,20 +242,21 @@ export async function syncAllParentMetafields(
   admin: AdminApiContext,
   nodes: Array<{
     collectionGid: string | null;
+    collectionHandle: string | null;
     parentId: string | null;
-    children: Array<{ collectionGid: string | null }>;
+    children: Array<{ collectionGid: string | null; collectionHandle: string | null }>;
   }>,
   nodeGidMap: Map<string, string>,
 ) {
   for (const node of nodes) {
     if (!node.collectionGid) continue;
 
-    // Set collection_children on this node
-    const childGids = node.children
-      .map((c) => c.collectionGid)
-      .filter((gid): gid is string => gid !== null);
-    if (childGids.length > 0) {
-      await setCollectionChildren(admin, node.collectionGid, childGids);
+    // Set children_data on this node (JSON array of handles)
+    const childHandles = node.children
+      .map((c) => c.collectionHandle)
+      .filter((h): h is string => h !== null);
+    if (childHandles.length > 0) {
+      await setCollectionChildren(admin, node.collectionGid, childHandles);
     }
 
     // Set parent_collection on this node

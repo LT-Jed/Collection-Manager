@@ -680,16 +680,16 @@ export async function buildFullHierarchy(
           isActive: true,
           collectionGid: { not: null },
         },
-        select: { collectionGid: true },
+        select: { collectionGid: true, collectionHandle: true },
       });
       if (childNodes.length > 0) {
-        const childGids = childNodes
-          .map((c: { collectionGid: string | null }) => c.collectionGid)
-          .filter((gid: string | null): gid is string => gid !== null);
+        const childHandles = childNodes
+          .map((c: { collectionHandle: string | null }) => c.collectionHandle)
+          .filter((h: string | null): h is string => h !== null);
         await setCollectionChildren(
           admin,
           parentNode.collectionGid,
-          childGids,
+          childHandles,
         );
       }
     }

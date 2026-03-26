@@ -308,16 +308,16 @@ async function syncProductForTree(
       collectionGidsForBreadcrumb.push(node.collectionGid);
     }
 
-    // Update parent's collection_children
+    // Update parent's children_data
     if (parentDbId && node.collectionGid) {
       const siblings = await db.hierarchyNode.findMany({
         where: {
           shopId,
           parentId: parentDbId,
           isActive: true,
-          collectionGid: { not: null },
+          collectionHandle: { not: null },
         },
-        select: { collectionGid: true },
+        select: { collectionHandle: true },
       });
       const parentNode: { collectionGid: string | null } | null =
         await db.hierarchyNode.findUnique({
@@ -328,8 +328,8 @@ async function syncProductForTree(
           admin,
           parentNode.collectionGid,
           siblings
-            .map((s) => s.collectionGid)
-            .filter((g): g is string => g !== null),
+            .map((s) => s.collectionHandle)
+            .filter((h): h is string => h !== null),
         );
       }
     }
