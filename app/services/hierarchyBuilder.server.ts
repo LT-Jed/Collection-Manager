@@ -680,16 +680,20 @@ export async function buildFullHierarchy(
           isActive: true,
           collectionGid: { not: null },
         },
-        select: { collectionGid: true, collectionHandle: true },
+        select: { collectionGid: true, collectionHandle: true, value: true, productCount: true },
       });
       if (childNodes.length > 0) {
-        const childHandles = childNodes
-          .map((c: { collectionHandle: string | null }) => c.collectionHandle)
-          .filter((h: string | null): h is string => h !== null);
+        const childData = childNodes
+          .filter((c: { collectionHandle: string | null }) => c.collectionHandle !== null)
+          .map((c: { collectionHandle: string | null; value: string; productCount: number }) => ({
+            handle: c.collectionHandle!,
+            title: c.value,
+            count: c.productCount,
+          }));
         await setCollectionChildren(
           admin,
           parentNode.collectionGid,
-          childHandles,
+          childData,
         );
       }
     }
@@ -742,6 +746,29 @@ export async function buildFullHierarchy(
       if (collectionGids.length > 0) {
         await setProductBreadcrumbs(admin, product.id, collectionGids);
       }
+    }
+  }
+
+  // Clean up stale nodes: nodes in DB that are active with collections
+  // but were NOT visited during this sync (not in allDbNodes)
+  const activeNodes = await db.hierarchyNode.findMany({
+    where: {
+      shopId: shop.id,
+      isActive: true,
+      collectionGid: { not: null },
+      level: { lt: 100 }, // exclude standalone collections
+    },
+  });
+
+  for (const node of activeNodes) {
+    if (!allDbNodes.has(node.id) && node.collectionGid) {
+      console.log(`Removing stale collection: ${node.value} (level ${node.level}, tree ${node.treeType})`);
+      await handleCollectionRemoval(admin, shop.id, {
+        id: node.id,
+        collectionGid: node.collectionGid,
+        collectionHandle: node.collectionHandle,
+        parentId: node.parentId,
+      });
     }
   }
 

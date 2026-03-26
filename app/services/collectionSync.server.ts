@@ -317,7 +317,7 @@ async function syncProductForTree(
           isActive: true,
           collectionHandle: { not: null },
         },
-        select: { collectionHandle: true },
+        select: { collectionHandle: true, value: true, productCount: true },
       });
       const parentNode: { collectionGid: string | null } | null =
         await db.hierarchyNode.findUnique({
@@ -328,8 +328,12 @@ async function syncProductForTree(
           admin,
           parentNode.collectionGid,
           siblings
-            .map((s) => s.collectionHandle)
-            .filter((h): h is string => h !== null),
+            .filter((s) => s.collectionHandle !== null)
+            .map((s) => ({
+              handle: s.collectionHandle!,
+              title: s.value,
+              count: s.productCount,
+            })),
         );
       }
     }

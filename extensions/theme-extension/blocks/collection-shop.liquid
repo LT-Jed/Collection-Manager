@@ -1,22 +1,18 @@
 {% comment %}
   Collection Shop Block
   Automatically displays all child collections from the current collection's
-  custom.children_data metafield (JSON array of handles), grouped alphabetically with jump navigation.
+  custom.children_data metafield (JSON array of {handle, title, count} objects),
+  grouped alphabetically with jump navigation.
 {% endcomment %}
 
-{% assign children_json = collection.metafields.custom.children_data.value %}
+{% assign children_data = collection.metafields.custom.children_data.value %}
 
-{% if children_json != blank %}
-  {% assign child_handles = children_json %}
-
-  {% comment %} Build sorted list of letters from resolved collections {% endcomment %}
+{% if children_data != blank and children_data.size > 0 %}
+  {% comment %} Build sorted list of letters from child titles {% endcomment %}
   {% assign letters_used = '' %}
-  {% for handle in child_handles %}
-    {% assign child = collections[handle] %}
-    {% if child != blank and child.title != blank %}
-      {% assign child_title_parts = child.title | split: ' > ' %}
-      {% assign display_title = child_title_parts | last %}
-      {% assign first_letter = display_title | slice: 0 | upcase %}
+  {% for child in children_data %}
+    {% if child.title != blank %}
+      {% assign first_letter = child.title | slice: 0 | upcase %}
       {% unless letters_used contains first_letter %}
         {% if letters_used != '' %}
           {% assign letters_used = letters_used | append: ',' %}
@@ -50,16 +46,13 @@
         <div class="collection-shop__section" data-letter-section="{{ letter }}" id="collection-letter-{{ letter }}">
           <h3 class="collection-shop__section-heading">{{ letter }}</h3>
           <ul class="collection-shop__list">
-            {% for handle in child_handles %}
-              {% assign child = collections[handle] %}
-              {% if child != blank and child.title != blank %}
-                {% assign child_title_parts = child.title | split: ' > ' %}
-                {% assign display_title = child_title_parts | last %}
-                {% assign first_letter = display_title | slice: 0 | upcase %}
+            {% for child in children_data %}
+              {% if child.title != blank %}
+                {% assign first_letter = child.title | slice: 0 | upcase %}
                 {% if first_letter == letter %}
-                  <li class="collection-shop__item" data-collection-title="{{ display_title | downcase }}">
-                    <a href="{{ child.url }}" class="collection-shop__link">
-                      {{ display_title }} <span class="collection-shop__count">({{ child.products_count }})</span>
+                  <li class="collection-shop__item" data-collection-title="{{ child.title | downcase }}">
+                    <a href="{{ routes.collections_url }}/{{ child.handle }}" class="collection-shop__link">
+                      {{ child.title }} <span class="collection-shop__count">({{ child.count }})</span>
                     </a>
                   </li>
                 {% endif %}

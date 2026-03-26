@@ -263,7 +263,7 @@ export async function syncSeparateCollections(
     }
 
     // Create a collection for each unique value
-    const childHandles: string[] = [];
+    const childData: Array<{ handle: string; title: string; count: number }> = [];
     console.log(`Creating ${groups.size} child collections for "${collType.key}"`);
     for (const [value, productIds] of groups) {
       const handle = `${collType.key}-${value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
@@ -271,7 +271,7 @@ export async function syncSeparateCollections(
 
       const result = await createCollectionIfNeeded(admin, title, handle);
       if (result) {
-        childHandles.push(result.handle);
+        childData.push({ handle: result.handle, title: value, count: productIds.length });
         await addProductsToCollection(admin, result.gid, productIds);
 
         // Set parent_collection metafield on the child
@@ -311,9 +311,9 @@ export async function syncSeparateCollections(
       }
     }
 
-    // Set children_data metafield on the parent (JSON array of handles, no limit)
-    if (parentResult && childHandles.length > 0) {
-      await setCollectionChildren(admin, parentResult.gid, childHandles);
+    // Set children_data metafield on the parent (JSON array of {handle, title, count})
+    if (parentResult && childData.length > 0) {
+      await setCollectionChildren(admin, parentResult.gid, childData);
     }
 
     // Update parent product count

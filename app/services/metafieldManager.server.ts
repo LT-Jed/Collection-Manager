@@ -118,10 +118,16 @@ async function setMetafields(
   }
 }
 
+export interface ChildCollectionData {
+  handle: string;
+  title: string;
+  count: number;
+}
+
 export async function setCollectionChildren(
   admin: AdminApiContext,
   collectionGid: string,
-  childHandles: string[],
+  children: ChildCollectionData[],
 ) {
   await setMetafields(
     admin,
@@ -131,7 +137,7 @@ export async function setCollectionChildren(
         namespace: "custom",
         key: "children_data",
         type: "json",
-        value: JSON.stringify(childHandles),
+        value: JSON.stringify(children),
       },
     ],
     "children_data",
@@ -243,20 +249,31 @@ export async function syncAllParentMetafields(
   nodes: Array<{
     collectionGid: string | null;
     collectionHandle: string | null;
+    value: string;
+    productCount: number;
     parentId: string | null;
-    children: Array<{ collectionGid: string | null; collectionHandle: string | null }>;
+    children: Array<{
+      collectionGid: string | null;
+      collectionHandle: string | null;
+      value: string;
+      productCount: number;
+    }>;
   }>,
   nodeGidMap: Map<string, string>,
 ) {
   for (const node of nodes) {
     if (!node.collectionGid) continue;
 
-    // Set children_data on this node (JSON array of handles)
-    const childHandles = node.children
-      .map((c) => c.collectionHandle)
-      .filter((h): h is string => h !== null);
-    if (childHandles.length > 0) {
-      await setCollectionChildren(admin, node.collectionGid, childHandles);
+    // Set children_data on this node (JSON array of {handle, title, count})
+    const childData: ChildCollectionData[] = node.children
+      .filter((c) => c.collectionHandle !== null)
+      .map((c) => ({
+        handle: c.collectionHandle!,
+        title: c.value,
+        count: c.productCount,
+      }));
+    if (childData.length > 0) {
+      await setCollectionChildren(admin, node.collectionGid, childData);
     }
 
     // Set parent_collection on this node
