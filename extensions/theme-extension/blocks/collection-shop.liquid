@@ -6,15 +6,19 @@
 {% endcomment %}
 
 {% assign children_raw = collection.metafields.custom.children_data.value %}
-{% comment %} JSON metafields may need explicit parsing in some Shopify versions {% endcomment %}
+
+<!-- DEBUG: raw type={{ children_raw | json }} -->
+<!-- DEBUG: blank={{ children_raw == blank }} -->
+
 {% if children_raw == blank %}
   {% assign children_data = null %}
+  <!-- DEBUG: children_raw is blank -->
 {% elsif children_raw.first.handle %}
-  {% comment %} Already parsed as array of objects {% endcomment %}
   {% assign children_data = children_raw %}
+  <!-- DEBUG: already parsed, size={{ children_data.size }} -->
 {% else %}
-  {% comment %} Raw JSON string — parse it {% endcomment %}
   {% assign children_data = children_raw | parse_json %}
+  <!-- DEBUG: parsed json, size={{ children_data.size }} -->
 {% endif %}
 
 {% if children_data != blank and children_data.size > 0 %}

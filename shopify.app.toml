@@ -17,7 +17,7 @@ uri = "/webhooks"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,read_products,write_content,read_content,read_publications,write_publications,read_metaobjects"
+scopes = "write_products,read_products,write_content,read_content,read_publications,write_publications,read_metaobjects,write_online_store_navigation"
 
 [auth]
 redirect_urls = [ "https://collection-manager-5b15.onrender.com/api/auth" ]
