@@ -5,7 +5,17 @@
   grouped alphabetically with jump navigation.
 {% endcomment %}
 
-{% assign children_data = collection.metafields.custom.children_data.value %}
+{% assign children_raw = collection.metafields.custom.children_data.value %}
+{% comment %} JSON metafields may need explicit parsing in some Shopify versions {% endcomment %}
+{% if children_raw == blank %}
+  {% assign children_data = null %}
+{% elsif children_raw.first.handle %}
+  {% comment %} Already parsed as array of objects {% endcomment %}
+  {% assign children_data = children_raw %}
+{% else %}
+  {% comment %} Raw JSON string — parse it {% endcomment %}
+  {% assign children_data = children_raw | parse_json %}
+{% endif %}
 
 {% if children_data != blank and children_data.size > 0 %}
   {% comment %} Build sorted list of letters from child titles {% endcomment %}

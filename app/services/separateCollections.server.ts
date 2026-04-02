@@ -3,6 +3,7 @@ import { graphqlWithRetry } from "./graphqlWithRetry.server";
 import db from "../db.server";
 import { getPublicationIds, publishCollectionToAllChannels } from "./hierarchyBuilder.server";
 import { setParentCollection, setCollectionChildren } from "./metafieldManager.server";
+import { handleCollectionRemoval } from "./redirectManager.server";
 
 const SEPARATE_COLLECTION_TYPES = [
   { key: "artist", metafieldKey: "artist_name", label: "Artist", pluralLabel: "Artists" },
@@ -204,6 +205,10 @@ export async function syncSeparateCollections(
 
   const products = await fetchAllProductsWithMetafields(admin);
 
+  // Track visited nodes for stale cleanup
+  const visitedParentKeys = new Set<string>();
+  const visitedChildValues = new Map<string, Set<string>>();
+
   for (const collType of SEPARATE_COLLECTION_TYPES) {
     const settingKey = `${collType.key}Enabled` as keyof SeparateCollectionSettings;
     if (!settings[settingKey]) continue;
@@ -322,5 +327,70 @@ export async function syncSeparateCollections(
       where: { id: parentDbNode.id },
       data: { productCount: totalProducts },
     });
+
+    // Track which child values we visited for cleanup
+    visitedChildValues.set(collType.key, new Set(groups.keys()));
+    visitedParentKeys.add(collType.key);
+  }
+
+  // Clean up stale standalone collections
+  const allStandaloneNodes = await db.hierarchyNode.findMany({
+    where: {
+      shopId: shop.id,
+      collectionGid: { not: null },
+      level: { gte: 100 },
+    },
+  });
+
+  for (const node of allStandaloneNodes) {
+    if (!node.collectionGid) continue;
+
+    if (node.level === 100) {
+      // Parent node — check if the setting is still enabled
+      const collType = SEPARATE_COLLECTION_TYPES.find(
+        (ct) => ct.pluralLabel === node.value,
+      );
+      if (!collType || !visitedParentKeys.has(collType.key)) {
+        console.log(`Removing stale standalone parent: ${node.value}`);
+        await handleCollectionRemoval(admin, shop.id, {
+          id: node.id,
+          collectionGid: node.collectionGid,
+          collectionHandle: node.collectionHandle,
+          parentId: node.parentId,
+        });
+      }
+    } else if (node.level === 101) {
+      // Child node — check if parent still exists and this value was visited
+      const parentNode = allStandaloneNodes.find(
+        (n) => n.id === node.parentId && n.level === 100,
+      );
+      if (!parentNode) {
+        // Parent gone, remove child
+        console.log(`Removing orphaned standalone child: ${node.value}`);
+        await handleCollectionRemoval(admin, shop.id, {
+          id: node.id,
+          collectionGid: node.collectionGid,
+          collectionHandle: node.collectionHandle,
+          parentId: node.parentId,
+        });
+        continue;
+      }
+
+      const collType = SEPARATE_COLLECTION_TYPES.find(
+        (ct) => ct.pluralLabel === parentNode.value,
+      );
+      const visitedValues = collType
+        ? visitedChildValues.get(collType.key)
+        : undefined;
+      if (!visitedValues || !visitedValues.has(node.value)) {
+        console.log(`Removing stale standalone child: ${node.value} (under ${parentNode.value})`);
+        await handleCollectionRemoval(admin, shop.id, {
+          id: node.id,
+          collectionGid: node.collectionGid,
+          collectionHandle: node.collectionHandle,
+          parentId: node.parentId,
+        });
+      }
+    }
   }
 }

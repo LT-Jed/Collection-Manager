@@ -5,7 +5,14 @@
   Renders nothing when there are no children, making it invisible on leaf collections.
 {% endcomment %}
 
-{% assign children_data = collection.metafields.custom.children_data.value %}
+{% assign children_raw = collection.metafields.custom.children_data.value %}
+{% if children_raw == blank %}
+  {% assign children_data = null %}
+{% elsif children_raw.first.handle %}
+  {% assign children_data = children_raw %}
+{% else %}
+  {% assign children_data = children_raw | parse_json %}
+{% endif %}
 
 {% if children_data != blank and children_data.size > 0 %}
   {% comment %} Determine heading text — look up first child's hierarchy_level via collections[] {% endcomment %}
