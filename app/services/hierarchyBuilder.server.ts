@@ -749,18 +749,17 @@ export async function buildFullHierarchy(
     }
   }
 
-  // Clean up stale nodes: nodes in DB that are active with collections
-  // but were NOT visited during this sync (not in allDbNodes)
-  const activeNodes = await db.hierarchyNode.findMany({
+  // Clean up stale nodes: any node with a collectionGid that was NOT
+  // visited during this sync (not in allDbNodes) — whether active or not
+  const nodesWithCollections = await db.hierarchyNode.findMany({
     where: {
       shopId: shop.id,
-      isActive: true,
       collectionGid: { not: null },
       level: { lt: 100 }, // exclude standalone collections
     },
   });
 
-  for (const node of activeNodes) {
+  for (const node of nodesWithCollections) {
     if (!allDbNodes.has(node.id) && node.collectionGid) {
       console.log(`Removing stale collection: ${node.value} (level ${node.level}, tree ${node.treeType})`);
       await handleCollectionRemoval(admin, shop.id, {
