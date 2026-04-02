@@ -7,8 +7,8 @@
 
 {% assign children_raw = collection.metafields.custom.children_data.value %}
 
-<!-- DEBUG: raw type={{ children_raw | json }} -->
-<!-- DEBUG: blank={{ children_raw == blank }} -->
+<!-- DEBUG: raw={{ children_raw | json }} -->
+{% if children_raw == blank %}<!-- DEBUG: is blank -->{% endif %}
 
 {% if children_raw == blank %}
   {% assign children_data = null %}
