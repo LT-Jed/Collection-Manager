@@ -62,16 +62,38 @@ model HierarchyNode {
   collectionGid    String?
   collectionHandle String?
   productCount     Int      @default(0)
+  activeProductCount Int    @default(0)
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   shop     Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  memberships NodeMembership[]
 
   @@unique([shopId, level, value, parentId, treeType])
   @@index([shopId, level])
   @@index([parentId])
   @@index([treeType])
+}
+
+// Records which products belong to which hierarchy/standalone node. This is the
+// source of truth for membership and counts, so the incremental webhook sync can
+// fully manage collections (including backfilling a newly-created collection)
+// without ever requiring a full sync.
+model NodeMembership {
+  id         String   @id @default(cuid())
+  shopId     String
+  nodeId     String
+  productGid String
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  node HierarchyNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@unique([nodeId, productGid])
+  @@index([shopId, productGid])
+  @@index([nodeId])
 }
 
 model CollectionSyncJob {

@@ -53,6 +53,7 @@ export const HIERARCHY_LEVELS = [
 
 interface ProductData {
   id: string;
+  status: string;
   vendor: string;
   productType: string;
   metafields: Map<string, string>;
@@ -62,7 +63,10 @@ interface TreeNode {
   level: number;
   levelName: string;
   value: string;
+  // All products in this node (any status) — these are added to the collection.
   productIds: Set<string>;
+  // Active products only — drives the count shown on the storefront.
+  activeProductIds: Set<string>;
   children: Map<string, TreeNode>;
 }
 
@@ -141,6 +145,7 @@ async function fetchAllProducts(
           edges {
             node {
               id
+              status
               vendor
               productType
               metafields(first: 20, namespace: "custom") {
@@ -166,6 +171,7 @@ async function fetchAllProducts(
       }
       products.push({
         id: node.id,
+        status: node.status,
         vendor: node.vendor,
         productType: node.productType,
         metafields,
@@ -204,11 +210,15 @@ function buildTree(
           levelName: entry.levelName,
           value: entry.value,
           productIds: new Set(),
+          activeProductIds: new Set(),
           children: new Map(),
         });
       }
       const node: TreeNode = currentLevel.get(key)!;
       node.productIds.add(product.id);
+      if (product.status === "ACTIVE") {
+        node.activeProductIds.add(product.id);
+      }
       currentLevel = node.children;
     }
 
@@ -218,14 +228,14 @@ function buildTree(
   return { root, productPaths };
 }
 
-function generateCollectionTitle(
+export function generateCollectionTitle(
   value: string,
   parentTitle?: string,
 ): string {
   return parentTitle ? `${parentTitle} > ${value}` : value;
 }
 
-function generateCollectionHandle(
+export function generateCollectionHandle(
   levelName: string,
   value: string,
   parentHandle?: string,
@@ -467,6 +477,7 @@ async function processTreeLevel(
 ): Promise<void> {
   for (const [, treeNode] of nodes) {
     const productCount = treeNode.productIds.size;
+    const activeProductCount = treeNode.activeProductIds.size;
 
     const dbNode = await db.hierarchyNode.upsert({
       where: {
@@ -486,14 +497,30 @@ async function processTreeLevel(
         parentId: parentDbId ?? "",
         treeType,
         productCount,
+        activeProductCount,
         isActive: productCount >= minProductThreshold,
       },
       update: {
         productCount,
+        activeProductCount,
         isActive: productCount >= minProductThreshold,
         levelName: treeNode.levelName,
       },
     });
+
+    // Replace this node's membership rows so the incremental sync has an
+    // accurate, backfillable record of which products belong to it.
+    await db.nodeMembership.deleteMany({ where: { nodeId: dbNode.id } });
+    if (treeNode.productIds.size > 0) {
+      await db.nodeMembership.createMany({
+        data: Array.from(treeNode.productIds).map((productGid) => ({
+          shopId,
+          nodeId: dbNode.id,
+          productGid,
+          active: treeNode.activeProductIds.has(productGid),
+        })),
+      });
+    }
 
     if (productCount >= minProductThreshold) {
       const handle = generateCollectionHandle(
@@ -637,6 +664,13 @@ export async function buildFullHierarchy(
 
   await ensureMetafieldDefinitions(admin);
 
+  // Full sync is authoritative for the hierarchy trees: clear hierarchy
+  // membership up front so stale rows (for nodes that no longer have products)
+  // don't linger; processTreeLevel repopulates every current node below.
+  await db.nodeMembership.deleteMany({
+    where: { shopId: shop.id, node: { level: { lt: 100 } } },
+  });
+
   const products = await fetchAllProducts(admin);
   const publicationIds = await getPublicationIds(admin);
 
@@ -680,15 +714,15 @@ export async function buildFullHierarchy(
           isActive: true,
           collectionGid: { not: null },
         },
-        select: { collectionGid: true, collectionHandle: true, value: true, productCount: true },
+        select: { collectionGid: true, collectionHandle: true, value: true, activeProductCount: true },
       });
       if (childNodes.length > 0) {
         const childData = childNodes
           .filter((c: { collectionHandle: string | null }) => c.collectionHandle !== null)
-          .map((c: { collectionHandle: string | null; value: string; productCount: number }) => ({
+          .map((c: { collectionHandle: string | null; value: string; activeProductCount: number }) => ({
             handle: c.collectionHandle!,
             title: c.value,
-            count: c.productCount,
+            count: c.activeProductCount,
           }));
         await setCollectionChildren(
           admin,
