@@ -475,6 +475,7 @@ async function processTreeLevel(
   allDbNodes: Map<string, string>,
   publicationIds: string[],
   treeType: TreeType,
+  onNode?: () => Promise<void>,
 ): Promise<void> {
   for (const [, treeNode] of nodes) {
     const productCount = treeNode.productIds.size;
@@ -584,6 +585,9 @@ async function processTreeLevel(
         allDbNodes.set(dbNode.id, collectionGid);
       }
 
+      // Notify before recursing so progress reflects depth-first traversal.
+      await onNode?.();
+
       // Recurse into children
       await processTreeLevel(
         admin,
@@ -596,6 +600,7 @@ async function processTreeLevel(
         allDbNodes,
         publicationIds,
         treeType,
+        onNode,
       );
     } else if (dbNode.collectionGid) {
       await handleCollectionRemoval(admin, shopId, {
@@ -604,6 +609,9 @@ async function processTreeLevel(
         collectionHandle: dbNode.collectionHandle,
         parentId: dbNode.parentId,
       });
+      await onNode?.();
+    } else {
+      await onNode?.();
     }
   }
 }
@@ -643,6 +651,24 @@ async function getCollectionGidsForPath(
   return collectionGids;
 }
 
+// Count the nodes processTreeLevel will actually visit. It must mirror that
+// function's recursion exactly — children are only visited when their parent
+// meets the threshold — otherwise the phase-2 progress denominator would never
+// be reached and the bar would never fill.
+function countVisitedNodes(
+  nodes: Map<string, TreeNode>,
+  minProductThreshold: number,
+): number {
+  let count = 0;
+  for (const [, node] of nodes) {
+    count += 1;
+    if (node.productIds.size >= minProductThreshold) {
+      count += countVisitedNodes(node.children, minProductThreshold);
+    }
+  }
+  return count;
+}
+
 export async function buildFullHierarchy(
   admin: AdminApiContext,
   shopDomain: string,
@@ -680,12 +706,21 @@ export async function buildFullHierarchy(
   const treeTypes = getTreeTypes(settings.brandMode);
   const allDbNodes = new Map<string, string>();
 
-  // Build each tree type
-  await progress?.phase("Building hierarchy", treeTypes.length);
-  let builtTrees = 0;
-  for (const treeType of treeTypes) {
-    const { root } = buildTree(products, settings, treeType);
+  // Build the in-memory trees up front so we know the total node count — this
+  // is the denominator that lets the progress bar advance node-by-node through
+  // the (often long) hierarchy build instead of sitting at the phase boundary.
+  const builtTrees = treeTypes.map((treeType) => ({
+    treeType,
+    root: buildTree(products, settings, treeType).root,
+  }));
+  const totalNodes = builtTrees.reduce(
+    (sum, t) => sum + countVisitedNodes(t.root, settings.minProductThreshold),
+    0,
+  );
 
+  await progress?.phase("Building hierarchy", totalNodes);
+  let processedNodes = 0;
+  for (const { treeType, root } of builtTrees) {
     await processTreeLevel(
       admin,
       shop.id,
@@ -697,8 +732,10 @@ export async function buildFullHierarchy(
       allDbNodes,
       publicationIds,
       treeType,
+      async () => {
+        await progress?.tick(++processedNodes);
+      },
     );
-    await progress?.tick(++builtTrees);
   }
 
   // Update collection_children metafields for all parent nodes

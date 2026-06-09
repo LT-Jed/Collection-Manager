@@ -268,6 +268,15 @@ export async function runFullSyncJob(
     return result;
   };
 
+  // Keep the job row's updatedAt fresh while the sync runs. Long phases (e.g.
+  // building the hierarchy) don't emit per-item ticks, so without this the UI's
+  // stall detector would fire mid-sync. The interval fires between awaits, so it
+  // stops naturally if the process dies — which is exactly when a real stall
+  // should be reported.
+  const heartbeat = setInterval(() => {
+    void progress.heartbeat();
+  }, 15000);
+
   try {
     let result;
     try {
@@ -303,5 +312,7 @@ export async function runFullSyncJob(
       },
     });
     throw error;
+  } finally {
+    clearInterval(heartbeat);
   }
 }

@@ -14,6 +14,7 @@ export class SyncProgress {
   private phaseCount: number;
   private phaseNumber = 0;
   private currentTotal = 0;
+  private lastProcessed = 0;
   private lastWriteAt = 0;
   private static readonly THROTTLE_MS = 400;
 
@@ -27,6 +28,7 @@ export class SyncProgress {
   async phase(label: string, total = 0): Promise<void> {
     this.phaseNumber += 1;
     this.currentTotal = total;
+    this.lastProcessed = 0;
     await this.write(
       {
         phaseLabel: label,
@@ -42,11 +44,20 @@ export class SyncProgress {
   // Report progress within the current phase. Throttled unless `force` is set.
   async tick(processed: number, total?: number): Promise<void> {
     if (total !== undefined) this.currentTotal = total;
+    this.lastProcessed = processed;
     const done = total === undefined ? processed >= this.currentTotal : false;
     await this.write(
       { processed, ...(total !== undefined ? { total } : {}) },
       done,
     );
+  }
+
+  // Touch the job row so its updatedAt stays fresh during long phases that
+  // don't emit per-item ticks (e.g. building the hierarchy). This is what the
+  // UI's stall detector keys off — a heartbeat means "the process is alive",
+  // so the detector only fires when the background job has genuinely died.
+  async heartbeat(): Promise<void> {
+    await this.write({ processed: this.lastProcessed }, true);
   }
 
   private async write(
