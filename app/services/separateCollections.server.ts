@@ -5,7 +5,7 @@ import { getPublicationIds, publishCollectionToAllChannels } from "./hierarchyBu
 import { setParentCollection, setCollectionChildren } from "./metafieldManager.server";
 import { handleCollectionRemoval } from "./redirectManager.server";
 
-const SEPARATE_COLLECTION_TYPES = [
+export const SEPARATE_COLLECTION_TYPES = [
   { key: "artist", metafieldKey: "artist_name", label: "Artist", pluralLabel: "Artists" },
   { key: "line", metafieldKey: "line", label: "Line", pluralLabel: "Lines" },
   { key: "collection", metafieldKey: "collection", label: "Collection", pluralLabel: "Collections" },
@@ -17,7 +17,7 @@ interface SeparateCollectionSettings {
   collectionEnabled: boolean;
 }
 
-async function resolveMetaobjectDisplayNames(
+export async function resolveMetaobjectDisplayNames(
   admin: AdminApiContext,
   gids: string[],
 ): Promise<Map<string, string>> {
@@ -56,9 +56,9 @@ async function resolveMetaobjectDisplayNames(
 async function fetchAllProductsWithMetafields(
   admin: AdminApiContext,
 ): Promise<
-  Array<{ id: string; metafields: Map<string, string> }>
+  Array<{ id: string; status: string; metafields: Map<string, string> }>
 > {
-  const products: Array<{ id: string; metafields: Map<string, string> }> = [];
+  const products: Array<{ id: string; status: string; metafields: Map<string, string> }> = [];
   const metaobjectGids = new Set<string>();
   // Track which product metafields are metaobject references: [productIndex, key]
   const metaobjectRefs: Array<{ productIndex: number; key: string; gid: string }> = [];
@@ -74,6 +74,7 @@ async function fetchAllProductsWithMetafields(
           edges {
             node {
               id
+              status
               metafields(first: 20, namespace: "custom") {
                 edges { node { key value type } }
               }
@@ -100,7 +101,7 @@ async function fetchAllProductsWithMetafields(
           metaobjectRefs.push({ productIndex, key, gid: value });
         }
       }
-      products.push({ id: edge.node.id, metafields });
+      products.push({ id: edge.node.id, status: edge.node.status, metafields });
     }
 
     hasNextPage = data.pageInfo.hasNextPage;
@@ -121,7 +122,7 @@ async function fetchAllProductsWithMetafields(
   return products;
 }
 
-async function createCollectionIfNeeded(
+export async function createCollectionIfNeeded(
   admin: AdminApiContext,
   title: string,
   handle: string,
@@ -286,6 +287,15 @@ export async function syncSeparateCollections(
   };
 
   const products = await fetchAllProductsWithMetafields(admin);
+  const activeProductIds = new Set(
+    products.filter((p) => p.status === "ACTIVE").map((p) => p.id),
+  );
+
+  // Authoritative rebuild of standalone membership: clear stale rows up front;
+  // the per-node writes below repopulate every current standalone node.
+  await db.nodeMembership.deleteMany({
+    where: { shopId: shop.id, node: { level: { gte: 100 } } },
+  });
 
   // Track visited nodes for stale cleanup
   const visitedParentKeys = new Set<string>();
@@ -320,6 +330,7 @@ export async function syncSeparateCollections(
         collectionGid: parentResult?.gid ?? null,
         collectionHandle: parentResult?.handle ?? null,
         productCount: 0,
+        activeProductCount: 0,
         isActive: true,
       },
       update: {
@@ -329,16 +340,23 @@ export async function syncSeparateCollections(
       },
     });
 
-    // Group products by metafield value
+    // Group products by metafield value. All products are added to the
+    // collection (membership), but only active products are counted toward the
+    // number shown on the storefront.
     const groups = new Map<string, string[]>();
+    const activeCounts = new Map<string, number>();
     for (const product of products) {
       const value = product.metafields.get(collType.metafieldKey);
       if (value && value.trim()) {
         const trimmed = value.trim();
         if (!groups.has(trimmed)) {
           groups.set(trimmed, []);
+          activeCounts.set(trimmed, 0);
         }
         groups.get(trimmed)!.push(product.id);
+        if (product.status === "ACTIVE") {
+          activeCounts.set(trimmed, activeCounts.get(trimmed)! + 1);
+        }
       }
     }
 
@@ -357,10 +375,16 @@ export async function syncSeparateCollections(
       const handle = `${collType.key}-${value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
       const title = `${parentTitle} > ${value}`;
 
+      const activeCount = activeCounts.get(value) ?? 0;
       const result = await createCollectionIfNeeded(admin, title, handle);
       if (result) {
+<<<<<<< HEAD
         childData.push({ handle: result.handle, title: value, count: productIds.length });
         await reconcileCollectionProducts(admin, result.gid, productIds);
+=======
+        childData.push({ handle: result.handle, title: value, count: activeCount });
+        await addProductsToCollection(admin, result.gid, productIds);
+>>>>>>> 659c0ef99c440ad581afe06cccc9185eaad400ef
 
         // Set parent_collection metafield on the child
         if (parentResult) {
@@ -368,7 +392,7 @@ export async function syncSeparateCollections(
         }
 
         // Upsert child node in DB (level 101 = standalone children)
-        await db.hierarchyNode.upsert({
+        const childDbNode = await db.hierarchyNode.upsert({
           where: {
             shopId_level_value_parentId_treeType: {
               shopId: shop.id,
@@ -387,14 +411,27 @@ export async function syncSeparateCollections(
             collectionGid: result.gid,
             collectionHandle: result.handle,
             productCount: productIds.length,
+            activeProductCount: activeCount,
             isActive: true,
           },
           update: {
             collectionGid: result.gid,
             collectionHandle: result.handle,
             productCount: productIds.length,
+            activeProductCount: activeCount,
             isActive: true,
           },
+        });
+
+        // Record membership so the incremental sync can manage this collection.
+        await db.nodeMembership.deleteMany({ where: { nodeId: childDbNode.id } });
+        await db.nodeMembership.createMany({
+          data: productIds.map((productGid) => ({
+            shopId: shop.id,
+            nodeId: childDbNode.id,
+            productGid,
+            active: activeProductIds.has(productGid),
+          })),
         });
       }
     }
@@ -406,10 +443,24 @@ export async function syncSeparateCollections(
 
     // Update parent product count
     const totalProducts = Array.from(groups.values()).reduce((sum, ids) => sum + ids.length, 0);
+    const activeTotal = Array.from(activeCounts.values()).reduce((sum, n) => sum + n, 0);
     await db.hierarchyNode.update({
       where: { id: parentDbNode.id },
-      data: { productCount: totalProducts },
+      data: { productCount: totalProducts, activeProductCount: activeTotal },
     });
+
+    // Record parent ("all") membership: every product carrying this metafield.
+    await db.nodeMembership.deleteMany({ where: { nodeId: parentDbNode.id } });
+    if (allProductIds.length > 0) {
+      await db.nodeMembership.createMany({
+        data: allProductIds.map((productGid) => ({
+          shopId: shop.id,
+          nodeId: parentDbNode.id,
+          productGid,
+          active: activeProductIds.has(productGid),
+        })),
+      });
+    }
 
     // Track which child values we visited for cleanup
     visitedChildValues.set(collType.key, new Set(groups.keys()));

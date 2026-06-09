@@ -3,22 +3,10 @@ import { graphqlWithRetry } from "./graphqlWithRetry.server";
 import db from "../db.server";
 import {
   buildFullHierarchy,
-  getProductHierarchyPath,
-  getPublicationIds,
-  publishCollectionToAllChannels,
-  getTreeTypes,
   type ShopSettings,
   type BrandMode,
-  type TreeType,
 } from "./hierarchyBuilder.server";
-import {
-  setCollectionChildren,
-  setParentCollection,
-  setHierarchyLevel,
-  setHierarchyTree,
-  setProductBreadcrumbs,
-  setProductUnbrandedBreadcrumbs,
-} from "./metafieldManager.server";
+import { reconcileProductMembership } from "./membershipSync.server";
 import { handleCollectionRemoval, createRedirect } from "./redirectManager.server";
 
 async function getOrCreateShop(shopDomain: string) {
@@ -49,15 +37,13 @@ function shopToSettings(shop: {
   };
 }
 
-async function fetchProduct(
-  admin: AdminApiContext,
-  productGid: string,
-) {
+async function fetchProduct(admin: AdminApiContext, productGid: string) {
   const response: Response = await graphqlWithRetry(admin,
     `#graphql
     query GetProduct($id: ID!) {
       product(id: $id) {
         id
+        status
         vendor
         productType
         metafields(first: 20, namespace: "custom") {
@@ -79,272 +65,19 @@ async function fetchProduct(
   }
 
   return {
-    id: product.id,
-    vendor: product.vendor,
-    productType: product.productType,
+    id: product.id as string,
+    status: product.status as string,
+    vendor: product.vendor as string,
+    productType: product.productType as string,
     metafields,
   };
 }
 
-async function createCollectionForNode(
-  admin: AdminApiContext,
-  title: string,
-  handle: string,
-): Promise<{ gid: string; handle: string } | null> {
-  const response: Response = await graphqlWithRetry(admin,
-    `#graphql
-    mutation CreateCollection($input: CollectionInput!) {
-      collectionCreate(input: $input) {
-        collection { id handle }
-        userErrors { field message }
-      }
-    }`,
-    { variables: { input: { title, handle } } },
-  );
-  const json: any = await response.json();
-  const errors = json.data?.collectionCreate?.userErrors;
-  if (errors?.length) {
-    if (
-      errors.some((e: { message: string }) => e.message.includes("already"))
-    ) {
-      const findResp: Response = await graphqlWithRetry(admin,
-        `#graphql
-        query FindCollection($handle: String!) {
-          collectionByHandle(handle: $handle) { id handle }
-        }`,
-        { variables: { handle } },
-      );
-      const findJson: any = await findResp.json();
-      const c = findJson.data?.collectionByHandle;
-      return c ? { gid: c.id, handle: c.handle } : null;
-    }
-    console.error("Failed to create collection:", errors);
-    return null;
-  }
-  const c = json.data?.collectionCreate?.collection;
-  if (c) {
-    const pubIds = await getPublicationIds(admin);
-    await publishCollectionToAllChannels(admin, c.id, pubIds);
-    return { gid: c.id, handle: c.handle };
-  }
-  return null;
-}
-
-async function addProductToCollection(
-  admin: AdminApiContext,
-  collectionGid: string,
-  productGid: string,
-) {
-  await graphqlWithRetry(admin,
-    `#graphql
-    mutation AddProduct($id: ID!, $productIds: [ID!]!) {
-      collectionAddProducts(id: $id, productIds: $productIds) {
-        collection { id }
-        userErrors { field message }
-      }
-    }`,
-    { variables: { id: collectionGid, productIds: [productGid] } },
-  );
-}
-
-async function removeProductFromCollection(
-  admin: AdminApiContext,
-  collectionGid: string,
-  productGid: string,
-) {
-  await graphqlWithRetry(admin,
-    `#graphql
-    mutation RemoveProduct($id: ID!, $productIds: [ID!]!) {
-      collectionRemoveProducts(id: $id, productIds: $productIds) {
-        userErrors { field message }
-      }
-    }`,
-    { variables: { id: collectionGid, productIds: [productGid] } },
-  );
-}
-
-async function getProductCollections(
-  admin: AdminApiContext,
-  productGid: string,
-): Promise<string[]> {
-  const collectionGids: string[] = [];
-  let cursor: string | null = null;
-  let hasNext = true;
-
-  while (hasNext) {
-    const response: Response = await graphqlWithRetry(admin,
-      `#graphql
-      query ProductCollections($id: ID!, $after: String) {
-        product(id: $id) {
-          collections(first: 50, after: $after) {
-            edges {
-              node { id }
-              cursor
-            }
-            pageInfo { hasNextPage }
-          }
-        }
-      }`,
-      { variables: { id: productGid, after: cursor } },
-    );
-    const json: any = await response.json();
-    const collections = json.data?.product?.collections;
-    if (!collections) break;
-
-    for (const edge of collections.edges) {
-      collectionGids.push(edge.node.id);
-      cursor = edge.cursor;
-    }
-    hasNext = collections.pageInfo.hasNextPage;
-  }
-
-  return collectionGids;
-}
-
 /**
- * Walk the hierarchy path for a product within a specific tree type,
- * creating nodes/collections as needed. Returns the collection GIDs along the path.
+ * Handle a product create/update/delete webhook. All collection membership and
+ * counts (hierarchy + standalone) are reconciled incrementally from the DB
+ * membership table, so a full sync is never required for ongoing changes.
  */
-async function syncProductForTree(
-  admin: AdminApiContext,
-  shopId: string,
-  productGid: string,
-  settings: ShopSettings,
-  treeType: TreeType,
-  eventType: "create" | "update",
-): Promise<string[]> {
-  const product = await fetchProduct(admin, productGid);
-  if (!product) return [];
-
-  const newPath = getProductHierarchyPath(product, settings, treeType);
-  let parentDbId: string | null = null;
-  let parentHandle: string | undefined;
-  const collectionGidsForBreadcrumb: string[] = [];
-
-  for (const entry of newPath) {
-    const slug = entry.value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "");
-
-    let handle: string;
-    if (parentHandle) {
-      handle = `${parentHandle}-${slug}`;
-    } else {
-      handle = treeType === "unbranded" ? `all-${slug}` : slug;
-    }
-
-    const node: {
-      id: string;
-      collectionGid: string | null;
-      collectionHandle: string | null;
-      productCount: number;
-    } = await db.hierarchyNode.upsert({
-      where: {
-        shopId_level_value_parentId_treeType: {
-          shopId,
-          level: entry.level,
-          value: entry.value,
-          parentId: parentDbId ?? "",
-          treeType,
-        },
-      },
-      create: {
-        shopId,
-        level: entry.level,
-        levelName: entry.levelName,
-        value: entry.value,
-        parentId: parentDbId ?? "",
-        treeType,
-        productCount: 1,
-        isActive: true,
-      },
-      update: {
-        productCount: { increment: eventType === "create" ? 1 : 0 },
-      },
-    });
-
-    // Create collection if needed
-    if (
-      !node.collectionGid &&
-      node.productCount >= settings.minProductThreshold
-    ) {
-      const title = entry.value; // simplified for incremental
-      const result = await createCollectionForNode(admin, title, handle);
-      if (result) {
-        await db.hierarchyNode.update({
-          where: { id: node.id },
-          data: {
-            collectionGid: result.gid,
-            collectionHandle: result.handle,
-          },
-        });
-        node.collectionGid = result.gid;
-        node.collectionHandle = result.handle;
-
-        await setHierarchyLevel(admin, result.gid, entry.levelName);
-        if (treeType !== "single") {
-          await setHierarchyTree(admin, result.gid, treeType);
-        }
-        if (parentDbId) {
-          const parentNode: { collectionGid: string | null } | null =
-            await db.hierarchyNode.findUnique({
-              where: { id: parentDbId },
-            });
-          if (parentNode?.collectionGid) {
-            await setParentCollection(
-              admin,
-              result.gid,
-              parentNode.collectionGid,
-            );
-          }
-        }
-      }
-    }
-
-    // Add product to collection
-    if (node.collectionGid) {
-      await addProductToCollection(admin, node.collectionGid, productGid);
-      collectionGidsForBreadcrumb.push(node.collectionGid);
-    }
-
-    // Update parent's children_data
-    if (parentDbId && node.collectionGid) {
-      const siblings = await db.hierarchyNode.findMany({
-        where: {
-          shopId,
-          parentId: parentDbId,
-          isActive: true,
-          collectionHandle: { not: null },
-        },
-        select: { collectionHandle: true, value: true, productCount: true },
-      });
-      const parentNode: { collectionGid: string | null } | null =
-        await db.hierarchyNode.findUnique({
-          where: { id: parentDbId },
-        });
-      if (parentNode?.collectionGid) {
-        await setCollectionChildren(
-          admin,
-          parentNode.collectionGid,
-          siblings
-            .filter((s) => s.collectionHandle !== null)
-            .map((s) => ({
-              handle: s.collectionHandle!,
-              title: s.value,
-              count: s.productCount,
-            })),
-        );
-      }
-    }
-
-    parentDbId = node.id;
-    parentHandle = node.collectionHandle ?? handle;
-  }
-
-  return collectionGidsForBreadcrumb;
-}
-
 export async function syncProduct(
   admin: AdminApiContext,
   shopDomain: string,
@@ -364,149 +97,57 @@ export async function syncProduct(
   });
 
   try {
-    if (eventType === "delete") {
-      // Remove product from all managed collections
-      const nodes = await db.hierarchyNode.findMany({
-        where: { shopId: shop.id, isActive: true, collectionGid: { not: null } },
+    const product =
+      eventType === "delete" ? null : await fetchProduct(admin, productGid);
+    if (eventType !== "delete" && !product) {
+      await db.collectionSyncJob.update({
+        where: { id: job.id },
+        data: { status: "completed" },
       });
-      for (const node of nodes) {
-        if (node.collectionGid) {
-          await removeProductFromCollection(
-            admin,
-            node.collectionGid,
-            productGid,
-          );
-        }
-      }
+      return;
+    }
 
-      // Create a redirect from the product URL to the deepest collection
-      // in the default tree (branded/unbranded based on shop setting)
-      if (productHandle) {
-        const defaultTree =
-          settings.brandMode === "both"
-            ? (settings.defaultBreadcrumbTree === "unbranded"
-                ? "unbranded"
-                : "branded")
-            : settings.brandMode === "no_brand"
-              ? "single"
-              : "single";
+    await reconcileProductMembership(
+      admin,
+      shop.id,
+      settings,
+      productGid,
+      product,
+      eventType,
+    );
 
-        // Find the deepest active node with a collection in the default tree
-        const deepestNode = await db.hierarchyNode.findFirst({
-          where: {
-            shopId: shop.id,
-            isActive: true,
-            collectionHandle: { not: null },
-            treeType: defaultTree,
-            level: { lt: 100 }, // exclude standalone
-          },
-          orderBy: { level: "desc" },
-        });
+    // Redirect the deleted product's URL to the deepest remaining collection in
+    // the default tree.
+    if (eventType === "delete" && productHandle) {
+      const defaultTree =
+        settings.brandMode === "both"
+          ? settings.defaultBreadcrumbTree === "unbranded"
+            ? "unbranded"
+            : "branded"
+          : "single";
 
-        const toPath = deepestNode?.collectionHandle
-          ? `/collections/${deepestNode.collectionHandle}`
-          : "/collections";
+      const deepestNode = await db.hierarchyNode.findFirst({
+        where: {
+          shopId: shop.id,
+          isActive: true,
+          collectionHandle: { not: null },
+          treeType: defaultTree,
+          level: { lt: 100 }, // exclude standalone
+        },
+        orderBy: { level: "desc" },
+      });
 
-        await createRedirect(
-          admin,
-          shop.id,
-          `/products/${productHandle}`,
-          toPath,
-          "product_deleted",
-        );
-      }
-    } else {
-      // create or update
-      const treeTypes = getTreeTypes(settings.brandMode);
+      const toPath = deepestNode?.collectionHandle
+        ? `/collections/${deepestNode.collectionHandle}`
+        : "/collections";
 
-      // For updates: find which managed collections this product is currently in
-      let oldCollectionGids: Set<string> | null = null;
-      if (eventType === "update") {
-        const currentGids = await getProductCollections(admin, productGid);
-        const managedNodes = await db.hierarchyNode.findMany({
-          where: {
-            shopId: shop.id,
-            isActive: true,
-            collectionGid: { not: null },
-          },
-          select: { collectionGid: true },
-        });
-        const managedGids = new Set(
-          managedNodes
-            .map((n) => n.collectionGid)
-            .filter((g): g is string => g !== null),
-        );
-        oldCollectionGids = new Set(
-          currentGids.filter((g) => managedGids.has(g)),
-        );
-      }
-
-      const newCollectionGids = new Set<string>();
-
-      if (settings.brandMode === "both") {
-        // Sync both trees, set both breadcrumb metafields
-        const brandedGids = await syncProductForTree(
-          admin,
-          shop.id,
-          productGid,
-          settings,
-          "branded",
-          eventType,
-        );
-        const unbrandedGids = await syncProductForTree(
-          admin,
-          shop.id,
-          productGid,
-          settings,
-          "unbranded",
-          eventType,
-        );
-
-        for (const gid of [...brandedGids, ...unbrandedGids]) {
-          newCollectionGids.add(gid);
-        }
-
-        if (brandedGids.length > 0) {
-          await setProductBreadcrumbs(admin, productGid, brandedGids);
-        }
-        if (unbrandedGids.length > 0) {
-          await setProductUnbrandedBreadcrumbs(
-            admin,
-            productGid,
-            unbrandedGids,
-          );
-        }
-      } else {
-        // Single tree
-        const treeType = treeTypes[0];
-        const gids = await syncProductForTree(
-          admin,
-          shop.id,
-          productGid,
-          settings,
-          treeType,
-          eventType,
-        );
-        for (const gid of gids) {
-          newCollectionGids.add(gid);
-        }
-        if (gids.length > 0) {
-          await setProductBreadcrumbs(admin, productGid, gids);
-        }
-      }
-
-      // Remove product from old managed collections it no longer belongs to
-      if (oldCollectionGids) {
-        for (const oldGid of oldCollectionGids) {
-          if (!newCollectionGids.has(oldGid)) {
-            await removeProductFromCollection(admin, oldGid, productGid);
-            await db.hierarchyNode.updateMany({
-              where: { shopId: shop.id, collectionGid: oldGid },
-              data: { productCount: { decrement: 1 } },
-            });
-          }
-        }
-      }
+      await createRedirect(
+        admin,
+        shop.id,
+        `/products/${productHandle}`,
+        toPath,
+        "product_deleted",
+      );
     }
 
     await db.collectionSyncJob.update({
