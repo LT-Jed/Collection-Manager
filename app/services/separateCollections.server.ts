@@ -4,6 +4,7 @@ import db from "../db.server";
 import { getPublicationIds, publishCollectionToAllChannels } from "./hierarchyBuilder.server";
 import { setParentCollection, setCollectionChildren } from "./metafieldManager.server";
 import { handleCollectionRemoval } from "./redirectManager.server";
+import type { SyncProgress } from "./syncProgress.server";
 
 export const SEPARATE_COLLECTION_TYPES = [
   { key: "artist", metafieldKey: "artist_name", label: "Artist", pluralLabel: "Artists" },
@@ -276,6 +277,7 @@ async function reconcileCollectionProducts(
 export async function syncSeparateCollections(
   admin: AdminApiContext,
   shopDomain: string,
+  progress?: SyncProgress,
 ) {
   const shop = await db.shop.findUnique({ where: { shopDomain } });
   if (!shop) return;
@@ -285,6 +287,13 @@ export async function syncSeparateCollections(
     lineEnabled: shop.lineEnabled,
     collectionEnabled: shop.collectionEnabled,
   };
+
+  // One phase tick per enabled separate-collection type (artist/line/collection).
+  const enabledTypeCount = SEPARATE_COLLECTION_TYPES.filter(
+    (ct) => settings[`${ct.key}Enabled` as keyof SeparateCollectionSettings],
+  ).length;
+  await progress?.phase("Building separate collections", enabledTypeCount);
+  let typesDone = 0;
 
   const products = await fetchAllProductsWithMetafields(admin);
   const activeProductIds = new Set(
@@ -460,6 +469,7 @@ export async function syncSeparateCollections(
     // Track which child values we visited for cleanup
     visitedChildValues.set(collType.key, new Set(groups.keys()));
     visitedParentKeys.add(collType.key);
+    await progress?.tick(++typesDone);
   }
 
   // Clean up stale standalone collections

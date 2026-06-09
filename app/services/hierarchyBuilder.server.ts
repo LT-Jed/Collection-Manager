@@ -11,6 +11,7 @@ import {
   setProductUnbrandedBreadcrumbs,
 } from "./metafieldManager.server";
 import { handleCollectionRemoval } from "./redirectManager.server";
+import type { SyncProgress } from "./syncProgress.server";
 
 export type BrandMode = "brand_only" | "no_brand" | "both";
 export type TreeType = "single" | "branded" | "unbranded";
@@ -645,6 +646,7 @@ async function getCollectionGidsForPath(
 export async function buildFullHierarchy(
   admin: AdminApiContext,
   shopDomain: string,
+  progress?: SyncProgress,
 ) {
   const shop = await db.shop.upsert({
     where: { shopDomain },
@@ -671,6 +673,7 @@ export async function buildFullHierarchy(
     where: { shopId: shop.id, node: { level: { lt: 100 } } },
   });
 
+  await progress?.phase("Fetching products");
   const products = await fetchAllProducts(admin);
   const publicationIds = await getPublicationIds(admin);
 
@@ -678,6 +681,8 @@ export async function buildFullHierarchy(
   const allDbNodes = new Map<string, string>();
 
   // Build each tree type
+  await progress?.phase("Building hierarchy", treeTypes.length);
+  let builtTrees = 0;
   for (const treeType of treeTypes) {
     const { root } = buildTree(products, settings, treeType);
 
@@ -693,9 +698,11 @@ export async function buildFullHierarchy(
       publicationIds,
       treeType,
     );
+    await progress?.tick(++builtTrees);
   }
 
   // Update collection_children metafields for all parent nodes
+  await progress?.phase("Updating category links");
   for (const treeType of treeTypes) {
     const parentNodes = await db.hierarchyNode.findMany({
       where: {
@@ -734,6 +741,8 @@ export async function buildFullHierarchy(
   }
 
   // Set breadcrumb metafields on each product
+  await progress?.phase("Setting product breadcrumbs", products.length);
+  let breadcrumbsDone = 0;
   for (const product of products) {
     if (settings.brandMode === "both") {
       // Set branded breadcrumbs
@@ -781,10 +790,12 @@ export async function buildFullHierarchy(
         await setProductBreadcrumbs(admin, product.id, collectionGids);
       }
     }
+    await progress?.tick(++breadcrumbsDone);
   }
 
   // Clean up stale nodes: any node with a collectionGid that was NOT
   // visited during this sync (not in allDbNodes) — whether active or not
+  await progress?.phase("Cleaning up stale collections");
   const nodesWithCollections = await db.hierarchyNode.findMany({
     where: {
       shopId: shop.id,

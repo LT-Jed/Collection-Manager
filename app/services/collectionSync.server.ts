@@ -8,6 +8,8 @@ import {
 } from "./hierarchyBuilder.server";
 import { reconcileProductMembership } from "./membershipSync.server";
 import { handleCollectionRemoval, createRedirect } from "./redirectManager.server";
+import { syncSeparateCollections } from "./separateCollections.server";
+import { SyncProgress, TOTAL_SYNC_PHASES } from "./syncProgress.server";
 
 async function getOrCreateShop(shopDomain: string) {
   return db.shop.upsert({
@@ -222,6 +224,79 @@ export async function runFullSync(
     console.error("Full sync failed:", error);
     await db.collectionSyncJob.update({
       where: { id: job.id },
+      data: {
+        status: "failed",
+        details: error instanceof Error ? error.message : String(error),
+      },
+    });
+    throw error;
+  }
+}
+
+// Create a sync job row in the "running" state and return its id. The caller
+// kicks off runFullSyncJob (detached) so the HTTP request can return
+// immediately while the page polls this job's progress.
+export async function startFullSyncJob(shopDomain: string): Promise<string> {
+  const shop = await getOrCreateShop(shopDomain);
+  const job = await db.collectionSyncJob.create({
+    data: {
+      shopId: shop.id,
+      triggeredBy: "manual",
+      status: "running",
+      phaseCount: TOTAL_SYNC_PHASES,
+      phaseLabel: "Starting…",
+    },
+  });
+  return job.id;
+}
+
+// Run a full sync against an existing job row, reporting progress as it goes.
+// Runs the hierarchy build and the separate-collection sync under one job so the
+// progress bar spans the whole operation. `getAdmin` is called to (re)acquire an
+// admin client — it is retried once if the token expires mid-sync, so the job is
+// only marked failed after that retry is exhausted.
+export async function runFullSyncJob(
+  shopDomain: string,
+  jobId: string,
+  getAdmin: () => Promise<AdminApiContext>,
+) {
+  const progress = new SyncProgress(jobId, TOTAL_SYNC_PHASES);
+
+  const runOnce = async (admin: AdminApiContext) => {
+    const result = await buildFullHierarchy(admin, shopDomain, progress);
+    await syncSeparateCollections(admin, shopDomain, progress);
+    return result;
+  };
+
+  try {
+    let result;
+    try {
+      result = await runOnce(await getAdmin());
+    } catch (error: any) {
+      if (
+        error?.response?.code === 401 ||
+        error?.message?.includes("Unauthorized")
+      ) {
+        console.log("Token expired during sync, re-acquiring and retrying...");
+        result = await runOnce(await getAdmin());
+      } else {
+        throw error;
+      }
+    }
+
+    await db.collectionSyncJob.update({
+      where: { id: jobId },
+      data: {
+        status: "completed",
+        details: JSON.stringify(result),
+        phaseLabel: "Completed",
+      },
+    });
+    return result;
+  } catch (error) {
+    console.error("Full sync failed:", error);
+    await db.collectionSyncJob.update({
+      where: { id: jobId },
       data: {
         status: "failed",
         details: error instanceof Error ? error.message : String(error),

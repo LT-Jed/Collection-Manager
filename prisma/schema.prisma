@@ -102,6 +102,11 @@ model CollectionSyncJob {
   triggeredBy String
   status      String   @default("pending")
   details     String?
+  phaseLabel  String?
+  phaseNumber Int      @default(0)
+  phaseCount  Int      @default(0)
+  processed   Int      @default(0)
+  total       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

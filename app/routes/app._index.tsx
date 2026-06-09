@@ -4,14 +4,28 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { useLoaderData, useFetcher } from "react-router";
+import { useLoaderData, useFetcher, useRevalidator } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate, unauthenticated } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import db from "../db.server";
-import { runFullSync } from "../services/collectionSync.server";
-import { syncSeparateCollections } from "../services/separateCollections.server";
+import {
+  startFullSyncJob,
+  runFullSyncJob,
+} from "../services/collectionSync.server";
 import { HIERARCHY_LEVELS } from "../services/hierarchyBuilder.server";
+
+interface SyncJob {
+  id: string;
+  status: string;
+  phaseLabel: string | null;
+  phaseNumber: number;
+  phaseCount: number;
+  processed: number;
+  total: number;
+  error: string | null;
+  updatedAt: string;
+}
 
 interface HierarchyNodeWithChildren {
   id: string;
@@ -143,33 +157,29 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
-  // Helper that gets a fresh admin client — retries once on 401
-  const getAdmin = async () => {
-    const { admin } = await unauthenticated.admin(session.shop);
-    return admin;
-  };
-
   try {
-    let admin = await getAdmin();
-    try {
-      const result = await runFullSync(admin, session.shop);
-      await syncSeparateCollections(admin, session.shop);
-      return { success: true, ...result };
-    } catch (error: any) {
-      // If 401, re-acquire admin and retry once
-      if (error?.response?.code === 401 || error?.message?.includes("Unauthorized")) {
-        console.log("Token expired during sync, re-acquiring and retrying...");
-        admin = await getAdmin();
-        const result = await runFullSync(admin, session.shop);
-        await syncSeparateCollections(admin, session.shop);
-        return { success: true, ...result };
-      }
-      throw error;
-    }
+    // Create the job, then run the sync in the background so this request
+    // returns immediately. The page polls /app/sync-status for progress. The
+    // admin token is offline, so it stays valid after the request completes.
+    const jobId = await startFullSyncJob(session.shop);
+
+    const getAdmin = async () => {
+      const { admin } = await unauthenticated.admin(session.shop);
+      return admin;
+    };
+
+    // Detached on purpose: do not await. runFullSyncJob marks the job
+    // completed/failed; the .catch is just a safety net against unhandled
+    // rejections.
+    void runFullSyncJob(session.shop, jobId, getAdmin).catch((error) => {
+      console.error("Background sync failed:", error);
+    });
+
+    return { started: true, jobId };
   } catch (error) {
     return {
-      success: false,
-      error: error instanceof Error ? error.message : "Sync failed",
+      started: false,
+      error: error instanceof Error ? error.message : "Sync failed to start",
     };
   }
 };
@@ -243,29 +253,103 @@ export default function Dashboard() {
     isDualMode,
   } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
+  const statusFetcher = useFetcher<{ job: SyncJob | null }>();
+  const revalidator = useRevalidator();
   const shopify = useAppBridge();
   const [viewingTree, setViewingTree] = useState<"branded" | "unbranded">(
     "branded",
   );
 
-  const isLoading =
-    ["loading", "submitting"].includes(fetcher.state) &&
-    fetcher.formMethod === "POST";
+  // A sync is "running" if one was already in flight when the page loaded, or
+  // if we just started one. This drives polling and the progress bar.
+  const [syncing, setSyncing] = useState(lastSync?.status === "running");
 
+  const job = statusFetcher.data?.job ?? null;
+
+  // When the action confirms the sync started (or fails to start), react.
   useEffect(() => {
-    if (fetcher.data) {
-      if ((fetcher.data as { success: boolean }).success) {
-        shopify.toast.show("Sync completed successfully");
-      } else {
-        shopify.toast.show("Sync failed", { isError: true });
-      }
+    const data = fetcher.data as
+      | { started?: boolean; error?: string }
+      | undefined;
+    if (!data) return;
+    if (data.started) {
+      setSyncing(true);
+    } else if (data.error) {
+      shopify.toast.show(`Could not start sync: ${data.error}`, {
+        isError: true,
+      });
     }
   }, [fetcher.data, shopify]);
+
+  // Poll the lightweight status endpoint while a sync is running.
+  useEffect(() => {
+    if (!syncing) return;
+    statusFetcher.load("/app/sync-status");
+    const id = setInterval(
+      () => statusFetcher.load("/app/sync-status"),
+      1500,
+    );
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncing]);
+
+  // React to terminal job states: toast + refresh the dashboard data.
+  useEffect(() => {
+    if (!job) return;
+    if (job.status === "completed") {
+      setSyncing(false);
+      shopify.toast.show("Sync completed successfully");
+      revalidator.revalidate();
+    } else if (job.status === "failed") {
+      setSyncing(false);
+      shopify.toast.show(
+        `Sync failed${job.error ? `: ${job.error}` : ""}`,
+        { isError: true },
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.status]);
+
+  // Detect a stalled background sync (e.g. the server restarted mid-run): stop
+  // polling if the job hasn't reported progress for a while.
+  useEffect(() => {
+    if (!syncing || !job || job.status !== "running") return;
+    const age = Date.now() - new Date(job.updatedAt).getTime();
+    if (age > 120000) {
+      setSyncing(false);
+      shopify.toast.show("Sync appears to have stalled — check the logs.", {
+        isError: true,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.updatedAt, syncing]);
+
+  const isLoading =
+    (["loading", "submitting"].includes(fetcher.state) &&
+      fetcher.formMethod === "POST") ||
+    syncing;
 
   const triggerSync = useCallback(
     () => fetcher.submit({}, { method: "POST" }),
     [fetcher],
   );
+
+  // Overall completion percentage across all phases.
+  const percent =
+    job && job.phaseCount > 0
+      ? Math.min(
+          100,
+          Math.max(
+            0,
+            Math.round(
+              (((job.phaseNumber - 1) +
+                (job.total > 0 ? job.processed / job.total : 0)) /
+                job.phaseCount) *
+                100,
+            ),
+          ),
+        )
+      : 0;
 
   // Filter tree for dual mode
   const displayTree = isDualMode
@@ -281,6 +365,42 @@ export default function Dashboard() {
       >
         Sync Now
       </s-button>
+
+      {syncing && (
+        <s-section heading="Sync in progress">
+          <s-stack direction="block" gap="small-200">
+            <s-text type="strong">
+              {job && job.phaseNumber > 0
+                ? `Phase ${job.phaseNumber} of ${job.phaseCount}: ${job.phaseLabel ?? ""}`
+                : "Starting…"}
+            </s-text>
+            <div
+              style={{
+                width: "100%",
+                height: "8px",
+                background: "#e3e3e3",
+                borderRadius: "4px",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${percent}%`,
+                  height: "100%",
+                  background: "#008060",
+                  transition: "width 0.3s ease",
+                }}
+              />
+            </div>
+            <s-text color="subdued">
+              {percent}%
+              {job && job.total > 0
+                ? ` · ${job.processed} / ${job.total}`
+                : ""}
+            </s-text>
+          </s-stack>
+        </s-section>
+      )}
 
       <s-section heading="Overview">
         <s-stack direction="inline" gap="base">

@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE "CollectionSyncJob" ADD COLUMN "phaseLabel" TEXT;
+ALTER TABLE "CollectionSyncJob" ADD COLUMN "phaseNumber" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "CollectionSyncJob" ADD COLUMN "phaseCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "CollectionSyncJob" ADD COLUMN "processed" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "CollectionSyncJob" ADD COLUMN "total" INTEGER NOT NULL DEFAULT 0;
