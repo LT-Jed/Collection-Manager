@@ -378,13 +378,8 @@ export async function syncSeparateCollections(
       const activeCount = activeCounts.get(value) ?? 0;
       const result = await createCollectionIfNeeded(admin, title, handle);
       if (result) {
-<<<<<<< HEAD
-        childData.push({ handle: result.handle, title: value, count: productIds.length });
-        await reconcileCollectionProducts(admin, result.gid, productIds);
-=======
         childData.push({ handle: result.handle, title: value, count: activeCount });
-        await addProductsToCollection(admin, result.gid, productIds);
->>>>>>> 659c0ef99c440ad581afe06cccc9185eaad400ef
+        await reconcileCollectionProducts(admin, result.gid, productIds);
 
         // Set parent_collection metafield on the child
         if (parentResult) {
