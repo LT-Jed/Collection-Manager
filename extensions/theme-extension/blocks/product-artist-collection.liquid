@@ -1,0 +1,101 @@
+{% comment %}
+  Product Artist / Collection Detail Block
+  Renders "Artist:" and "Collection:" detail rows (styled to match the theme's
+  Orientation / verse detail rows) from the product's metafields:
+    - custom.artist_name  -> Artists separate collection (handle: artist-<slug>)
+    - custom.collection   -> Collections separate collection (handle: collection-<slug>)
+
+  Each value links to its separate collection when that collection exists
+  (i.e. the Artist / Collection separate-collection type is activated and synced).
+  When the collection does not exist, the value is shown as plain text.
+
+  The handle is rebuilt with the `handle` filter to match the slug produced by
+  syncSeparateCollections: `${type}-${value slugified}`.
+{% endcomment %}
+
+{% assign artist_value = product.metafields.custom.artist_name.value %}
+{% assign collection_value = product.metafields.custom.collection.value %}
+
+{% if artist_value != blank or collection_value != blank %}
+  <div class="product-detail-meta">
+    {% if block.settings.show_artist and artist_value != blank %}
+      {% assign artist_handle = artist_value | handle | prepend: 'artist-' %}
+      {% assign artist_collection = collections[artist_handle] %}
+      <p class="product-detail-meta__row">
+        <span class="product-detail-meta__label">{{ block.settings.artist_label }}:</span>
+        {% if artist_collection != blank and artist_collection.id %}
+          <a href="{{ artist_collection.url }}" class="product-detail-meta__link">{{ artist_value }}</a>
+        {% else %}
+          <span class="product-detail-meta__value">{{ artist_value }}</span>
+        {% endif %}
+      </p>
+    {% endif %}
+
+    {% if block.settings.show_collection and collection_value != blank %}
+      {% assign collection_handle = collection_value | handle | prepend: 'collection-' %}
+      {% assign collection_collection = collections[collection_handle] %}
+      <p class="product-detail-meta__row">
+        <span class="product-detail-meta__label">{{ block.settings.collection_label }}:</span>
+        {% if collection_collection != blank and collection_collection.id %}
+          <a href="{{ collection_collection.url }}" class="product-detail-meta__link">{{ collection_value }}</a>
+        {% else %}
+          <span class="product-detail-meta__value">{{ collection_value }}</span>
+        {% endif %}
+      </p>
+    {% endif %}
+  </div>
+
+  <style>
+    .product-detail-meta {
+      margin: 1rem 0;
+    }
+    .product-detail-meta__row {
+      margin: 0 0 0.5rem;
+      line-height: 1.5;
+    }
+    .product-detail-meta__label {
+      font-weight: 700;
+    }
+    .product-detail-meta__link {
+      color: inherit;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .product-detail-meta__link:hover {
+      opacity: 0.7;
+    }
+  </style>
+{% endif %}
+
+{% schema %}
+{
+  "name": "Product Artist / Collection",
+  "target": "section",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "show_artist",
+      "label": "Show artist",
+      "default": true
+    },
+    {
+      "type": "text",
+      "id": "artist_label",
+      "label": "Artist label",
+      "default": "Artist"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_collection",
+      "label": "Show collection",
+      "default": true
+    },
+    {
+      "type": "text",
+      "id": "collection_label",
+      "label": "Collection label",
+      "default": "Collection"
+    }
+  ]
+}
+{% endschema %}

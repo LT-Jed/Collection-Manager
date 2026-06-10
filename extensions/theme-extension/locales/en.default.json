@@ -51,5 +51,22 @@
         "label": "Number of columns"
       }
     }
+  },
+  "product_artist_collection": {
+    "name": "Product Artist / Collection",
+    "settings": {
+      "show_artist": {
+        "label": "Show artist"
+      },
+      "artist_label": {
+        "label": "Artist label"
+      },
+      "show_collection": {
+        "label": "Show collection"
+      },
+      "collection_label": {
+        "label": "Collection label"
+      }
+    }
   }
 }
